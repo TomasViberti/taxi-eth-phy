@@ -13,4 +13,4 @@
 //
 // Configuración prevista:
 // - Fuente del payload: PRBS (semilla configurable) o patrón fijo.
-//
+
