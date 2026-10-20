@@ -8,3 +8,9 @@
 // - En tb_top se decide qué instancia va a qué puerto del DUT:
 //   generador -> xgmii_txd/xgmii_txc, checker <- xgmii_rxd/xgmii_rxc.
 
+interface xgmii_if (input logic clk);
+
+    logic [63:0] d;   // 8 lanes de 1 byte. Lane 0 = d[7:0]
+    logic [7:0]  c;   // 1 bit por lane: 0 = dato, 1 = control
+
+endinterface
