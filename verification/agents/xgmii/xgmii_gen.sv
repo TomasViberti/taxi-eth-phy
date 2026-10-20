@@ -91,7 +91,7 @@ module xgmii_gen (xgmii_if x_if);
         send_idle(ipg);
     endtask
 
-    // Frame con el start en lane 4 (válido en 64 bits: es la lane 0 de la
+    // Frame con el start en lane 4 (válido en 64 bits: es la lane (bloque) 0 de la
     // segunda palabra de 32). Todo el frame queda corrido 4 bytes: la mitad
     // alta de cada palabra PRBS pasa a la mitad baja de la palabra siguiente.
     // El FD cae en lane 4 de la última palabra.
@@ -115,12 +115,13 @@ module xgmii_gen (xgmii_if x_if);
         send_idle(ipg);
     endtask
 
-    // ------------------------------------------------------------------
+    
+    
+    //-------------------------------------------------------------------
     // Inyección de errores
     // (send_word sirve para mandar cualquier palabra, válida o no)
-    // ------------------------------------------------------------------
 
-    // Palabra con el start en cualquier lane: idle antes, FB en la lane,
+    // Palabra con el start en cualquier lane (bloque): idle antes, FB en la lane,
     // preámbulo después. Sólo lane 0 y 4 son válidas.
     task send_start_lane(input int lane);
         logic [63:0] d;

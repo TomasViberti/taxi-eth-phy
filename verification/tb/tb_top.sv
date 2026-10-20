@@ -87,4 +87,12 @@ module tb_top (
         .done  (done)
     );
 
+    // Ondas para GTKWave: se activan con el plusarg +waves (WAVES=1 en Python)
+    initial begin
+        if ($test$plusargs("waves")) begin
+            $dumpfile("waves.fst");
+            $dumpvars(0, tb_top);
+        end
+    end
+
 endmodule
