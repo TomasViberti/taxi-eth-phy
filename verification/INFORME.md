@@ -34,27 +34,7 @@ Para el sync header se usa la convención bit 0 = primer bit transmitido, igual 
 
 Según qué se verifica, cambia de dónde salen las entradas del DUT. El checker que queda del lado contrario al generador verifica la mitad del DUT que atraviesa el estímulo, y el que queda al final del loopback verifica la vuelta completa.
 
-Tests XGMII (`loopback_xgmii = 0`), loopback serdes:
-
-```
-xgmii_gen -> TX -> serdes_tx -+-> pcs_checker      (lado contrario: verifica el TX)
-                              |
-                              +-> RX -> xgmii_checker   (vuelta completa)
-```
-
-Tests PCS (`loopback_xgmii = 1`), loopback XGMII:
-
-```
-pcs_gen -> RX -> xgmii_rxd -+-> xgmii_checker      (lado contrario: verifica el RX)
-                            |
-                            +-> TX -> serdes_tx -> pcs_checker   (vuelta completa)
-```
-
-### Latencia
-
-Los tests no dependen de la latencia del RTL. El checker se alinea por contenido: `expect_start` busca el start donde aparezca, y desde ahí compara palabra por palabra. La PRBS del checker avanza por palabra esperada y no por ciclo. Lo único que se asume es que dentro de un frame las palabras llegan seguidas, que es lo que pide la norma.
-
-Para errores entre idles, donde no hay start para alinearse, el checker busca la palabra o el bloque de error (`wait_error_word`, `wait_error_block`) y cuando lo encuentra verifica que sea el completo.
+<img width="3615" height="2570" alt="ETH_PHY_10G-Agentes_Verificación_ETH_PHY_10G drawio" src="https://github.com/user-attachments/assets/39bb33ae-d815-408b-959f-f4410d70c64b" />
 
 ## Tests y resultados
 
