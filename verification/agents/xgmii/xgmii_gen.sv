@@ -28,15 +28,15 @@ module xgmii_gen (xgmii_if x_if);
 
     // La línea arranca en idle
     initial begin
-     x_if.d = {8{IDLE}};
-     x_if.c = 8'hFF;
+     x_if.data = {8{IDLE}};
+     x_if.control = 8'hFF;
     end
 
     // Escribe una palabra en la interface en el próximo flanco
     task send_word(input logic [63:0] d, input logic [7:0] c);
         @(posedge x_if.clk);
-     x_if.d <= d;
-     x_if.c <= c;
+     x_if.data <= d;
+     x_if.control <= c;
     endtask
 
     // n palabras de idle

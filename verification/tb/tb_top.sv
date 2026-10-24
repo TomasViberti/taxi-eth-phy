@@ -2,9 +2,16 @@
 //
 // Top del testbench.
 //
-// - Instancia el DUT, el generador y el checker XGMII.
-// - Loopback: la salida serdes del TX vuelve a la entrada serdes del RX.
-//   generador -> xgmii_txd/txc -> TX -> serdes_tx -> serdes_rx -> RX -> xgmii_rxd/rxc -> checker
+// - Instancia el DUT y los agentes XGMII y PCS (generador + checker c/u).
+// - El checker XGMII siempre mira xgmii_rxd/rxc y el checker PCS siempre mira
+//   serdes_tx. Lo que cambia es de dónde vienen las entradas del DUT, según
+//   loopback_xgmii (lo elige el test, por defecto 0):
+//   0: tests XGMII. Loopback serdes: la salida serdes del TX vuelve al RX.
+//      xgmii_gen -> TX -> serdes_tx -> serdes_rx -> RX -> xgmii_checker
+//                          serdes_tx -> pcs_checker
+//   1: tests PCS. Loopback XGMII: la salida XGMII del RX vuelve al TX.
+//      pcs_gen -> serdes_rx -> RX -> xgmii_rxd/rxc -> xgmii_checker
+//                                    xgmii_rxd/rxc -> TX -> serdes_tx -> pcs_checker
 // - No tiene tests. Instancia "test u_test": cada archivo de test define un
 //   módulo llamado test, y se compila uno solo por simulación.
 // - Clocks, reset y start los maneja Python (cocotb). done lo pone el test.
@@ -22,15 +29,38 @@ module tb_top (
     xgmii_if x_if_tx (tx_clk);
     xgmii_if x_if_rx (rx_clk);
 
-    // Agente
-    xgmii_gen     u_gen (x_if_tx);
-    xgmii_checker u_chk (x_if_rx);
+    // Interfaces PCS: salida serdes del TX y entrada serdes del RX
+    pcs_if p_if_tx (tx_clk);
+    pcs_if p_if_rx (rx_clk);
 
-    // Loopback serdes
-    logic [63:0] serdes_tx_data;
+    // Agentes
+    xgmii_gen     u_xgmii_gen (x_if_tx);
+    xgmii_checker u_xgmii_chk (x_if_rx);
+    pcs_gen       u_pcs_gen   (p_if_rx);
+    pcs_checker   u_pcs_chk   (p_if_tx);
+
+    // Selección del loopback
+    logic loopback_xgmii = 0;
+
+    // Entrada XGMII del TX: xgmii_gen o la salida XGMII del RX
+    logic [63:0] xgmii_txd;
+    logic [7:0]  xgmii_txc;
+
+    assign xgmii_txd = loopback_xgmii ? x_if_rx.data    : x_if_tx.data;
+    assign xgmii_txc = loopback_xgmii ? x_if_rx.control : x_if_tx.control;
+
+    // Entrada serdes del RX: la salida serdes del TX o pcs_gen
     logic        serdes_tx_data_valid;
-    logic [1:0]  serdes_tx_hdr;
     logic        serdes_tx_hdr_valid;
+    logic [63:0] serdes_rx_data;
+    logic        serdes_rx_data_valid;
+    logic [1:0]  serdes_rx_hdr;
+    logic        serdes_rx_hdr_valid;
+
+    assign serdes_rx_data       = loopback_xgmii ? p_if_rx.data   : p_if_tx.data;
+    assign serdes_rx_data_valid = loopback_xgmii ? 1'b1           : serdes_tx_data_valid;
+    assign serdes_rx_hdr        = loopback_xgmii ? p_if_rx.header : p_if_tx.header;
+    assign serdes_rx_hdr_valid  = loopback_xgmii ? 1'b1           : serdes_tx_hdr_valid;
 
     // DUT
     taxi_eth_phy_10g dut (
@@ -40,29 +70,29 @@ module tb_top (
         .tx_rst                  (tx_rst),
 
         // XGMII
-        .xgmii_txd               (x_if_tx.d),
-        .xgmii_txc               (x_if_tx.c),
+        .xgmii_txd               (xgmii_txd),
+        .xgmii_txc               (xgmii_txc),
         .xgmii_tx_valid          (1'b1),
-        .xgmii_rxd               (x_if_rx.d),
-        .xgmii_rxc               (x_if_rx.c),
+        .xgmii_rxd               (x_if_rx.data),
+        .xgmii_rxc               (x_if_rx.control),
         .xgmii_rx_valid          (),
         .tx_gbx_req_sync         (),
         .tx_gbx_req_stall        (),
         .tx_gbx_sync             (1'b0),
         .rx_gbx_sync             (),
 
-        // SERDES con loopback
-        .serdes_tx_data          (serdes_tx_data),
+        // SERDES
+        .serdes_tx_data          (p_if_tx.data),
         .serdes_tx_data_valid    (serdes_tx_data_valid),
-        .serdes_tx_hdr           (serdes_tx_hdr),
+        .serdes_tx_hdr           (p_if_tx.header),
         .serdes_tx_hdr_valid     (serdes_tx_hdr_valid),
         .serdes_tx_gbx_req_sync  (1'b0),
         .serdes_tx_gbx_req_stall (1'b0),
         .serdes_tx_gbx_sync      (),
-        .serdes_rx_data          (serdes_tx_data),
-        .serdes_rx_data_valid    (serdes_tx_data_valid),
-        .serdes_rx_hdr           (serdes_tx_hdr),
-        .serdes_rx_hdr_valid     (serdes_tx_hdr_valid),
+        .serdes_rx_data          (serdes_rx_data),
+        .serdes_rx_data_valid    (serdes_rx_data_valid),
+        .serdes_rx_hdr           (serdes_rx_hdr),
+        .serdes_rx_hdr_valid     (serdes_rx_hdr_valid),
         .serdes_rx_gbx_sync      (1'b0),
         .serdes_rx_bitslip       (),
         .serdes_rx_reset_req     (),

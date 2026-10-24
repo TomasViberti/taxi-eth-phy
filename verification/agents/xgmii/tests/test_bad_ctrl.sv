@@ -1,48 +1,49 @@
 // test_bad_ctrl.sv
 //
-// Caracteres de control que no existen en la tabla 46-3 (0x55 y 0x00 con el
-// bit de control en 1). El TX los codifica como error: del lado XGMII RX tiene
-// que salir una palabra de error (0xFE) y tx_bad_block tiene que subir.
-// Pasa si error_count == 0.
+// Caracteres de control que no existen en la tabla 46-3, entre idles:
+// - 0x55 con c=1 en las 8 lanes
+// - 0x00 con c=1 en una sola lane (lane 3), el resto idle
+// Norma (cl. 49.2.13.2.3, máquina de estados del TX): una palabra con un
+// carácter de control inválido no es C, así que es E. En TX_C pasa a TX_E y
+// el TX manda un bloque de error entero, aunque el carácter inválido esté en
+// una sola lane. Después los idles vuelven a TX_C.
+// - Lado PCS: bloque de error (0x1E con 8 /E/) y después idles.
+// - Lado XGMII: 0xFE en las 8 lanes y después idles.
+// Pasa si error_count == 0 en los dos checkers.
 
 module test (input logic start, output logic done);
-
-    int bad_blocks = 0;
-
-    // Cuenta los ciclos con tx_bad_block en 1
-    always @(posedge tb_top.tx_clk)
-        if (tb_top.dut.tx_bad_block) bad_blocks++;
 
     initial begin
         done = 0;
         wait (start);
 
         // Idles hasta que el RX se sincronice con los headers
-        while (!tb_top.dut.rx_block_lock) tb_top.u_gen.send_idle(1);
-        tb_top.u_gen.send_idle(10);
+        while (!tb_top.dut.rx_block_lock) tb_top.u_xgmii_gen.send_idle(1);
+        tb_top.u_xgmii_gen.send_idle(10);
 
-        // 0x55 con c=1 en las 8 lanes
         fork
             begin
-                tb_top.u_gen.send_word({8{8'h55}}, 8'hFF);
-                tb_top.u_gen.send_idle(20);
+                tb_top.u_xgmii_gen.send_word({8{8'h55}}, 8'hFF);
+                tb_top.u_xgmii_gen.send_idle(20);
+                tb_top.u_xgmii_gen.send_word({{4{8'h07}}, 8'h00, {3{8'h07}}}, 8'hFF);
+                tb_top.u_xgmii_gen.send_idle(20);
             end
-            tb_top.u_chk.expect_error();
-        join
-
-        // 0x00 con c=1 en una sola lane (lane 3), el resto idle
-        fork
+            // Salida serdes del TX
             begin
-                tb_top.u_gen.send_word({{4{8'h07}}, 8'h00, {3{8'h07}}}, 8'hFF);
-                tb_top.u_gen.send_idle(20);
+                tb_top.u_pcs_chk.wait_error_block();
+                tb_top.u_pcs_chk.expect_idle(4);
+                tb_top.u_pcs_chk.wait_error_block();
+                tb_top.u_pcs_chk.expect_idle(4);
             end
-            tb_top.u_chk.expect_error();
-        join
-
-        if (bad_blocks < 2) begin
-            tb_top.u_chk.error_count++;
-            $display("[%0t] TEST ERROR: tx_bad_block se vio %0d veces, se esperaban 2", $time, bad_blocks);
-        end
+            // Salida XGMII del RX, después del loopback serdes
+            begin
+                tb_top.u_xgmii_chk.wait_error_word();
+                tb_top.u_xgmii_chk.expect_idle(4);
+                tb_top.u_xgmii_chk.wait_error_word();
+                tb_top.u_xgmii_chk.expect_idle(4);
+            end
+        join_none
+        wait fork;
 
         done = 1;
     end

@@ -33,6 +33,15 @@ module prbs;
         end
     endtask
 
+    // Scrambleo del sync header. Sólo para inyección de errores: según norma el
+    // header no se scramblea. Usa y avanza el mismo estado que scramble.
+    task scramble_hdr(input logic [1:0] hdr_in, output logic [1:0] hdr_out);
+        for (int i = 0; i < 2; i++) begin
+            hdr_out[i] = hdr_in[i] ^ scr_reg[38] ^ scr_reg[57];
+            scr_reg    = {scr_reg[56:0], hdr_out[i]};
+        end
+    endtask
+
     // Descrambler
     task descramble(input logic [63:0] data_in, output logic [63:0] data_out);
         for (int i = 0; i < 64; i++) begin

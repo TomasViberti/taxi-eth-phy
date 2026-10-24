@@ -45,8 +45,8 @@ module xgmii_checker (xgmii_if x_if);
     // Lee la palabra presente en la interface en el próximo flanco
     task recv_word(output logic [63:0] d, output logic [7:0] c);
         @(posedge x_if.clk);
-        d = x_if.d;
-        c = x_if.c;
+        d = x_if.data;
+        c = x_if.control;
     endtask
 
     // Compara la palabra recibida con la esperada. Si no coinciden, suma un error
@@ -71,8 +71,9 @@ module xgmii_checker (xgmii_if x_if);
         end
     endtask
 
-    // Espera hasta que aparezca el start en lane 0 y verifica preámbulo y SFD.
-    task expect_start();
+    // Espera hasta que aparezca el start en lane 0 y verifica las lanes 1-7
+    // (por defecto preámbulo y SFD).
+    task expect_start(input logic [55:0] content = {SFD, {6{PRE}}});
         logic [63:0] d;
         logic [7:0]  c;
         int n;
@@ -89,7 +90,7 @@ module xgmii_checker (xgmii_if x_if);
             recv_word(d, c);
         end
 
-        compare("start", {SFD, {6{PRE}}, START}, 8'h01, d, c);
+        compare("start", {content, START}, 8'h01, d, c);
     endtask
 
     // n palabras de dato: tienen que coincidir con la PRBS
@@ -102,6 +103,25 @@ module xgmii_checker (xgmii_if x_if);
             recv_word(d, c);
             compare("data", data, 8'h00, d, c);
         end
+    endtask
+
+    // Una palabra de dato con los bits de mask invertidos respecto de la PRBS
+    // (errores esperados en la línea)
+    task expect_data_mask(input logic [63:0] mask);
+        logic [63:0] data;
+        logic [63:0] d;
+        logic [7:0]  c;
+        u_prbs.generate_prbs(data);
+        recv_word(d, c);
+        compare("data mask", data ^ mask, 8'h00, d, c);
+    endtask
+
+    // Avanza la PRBS n palabras sin leer la interface. Para cuando el
+    // generador mandó datos de la PRBS que el DUT tiene que reemplazar por
+    // error: así el checker sigue alineado con el generador.
+    task skip_data(input int n);
+        logic [63:0] data;
+        repeat (n) u_prbs.generate_prbs(data);
     endtask
 
     // Última palabra del frame: n_bytes de dato, el FD en la lane n_bytes y el
@@ -171,6 +191,42 @@ module xgmii_checker (xgmii_if x_if);
 
         recv_word(d, c);
         compare("terminate lane 4", {{3{IDLE}}, TERM, carry}, 8'hF0, d, c);
+    endtask
+
+    // La próxima palabra tiene que ser un bloque de error completo: 0xFE en las
+    // 8 lanes (EBLOCK_T del TX, cl. 49.2.13.2.3)
+    task expect_error_word();
+        logic [63:0] d;
+        logic [7:0]  c;
+        recv_word(d, c);
+        compare("error word", {8{ERROR}}, 8'hFF, d, c);
+    endtask
+
+    // Espera hasta que aparezca una palabra con algún 0xFE (con c=1) y verifica
+    // que sea la palabra de error completa (0xFE en las 8 lanes). Para errores
+    // entre idles, donde no hay un start para alinearse.
+    task wait_error_word();
+        logic [63:0] d;
+        logic [7:0]  c;
+        logic        found;
+        int n;
+
+        n = 0;
+        found = 0;
+        while (!found) begin
+            recv_word(d, c);
+            for (int lane = 0; lane < 8; lane++)
+                if (c[lane] && d[8*lane +: 8] == ERROR) found = 1;
+
+            n++;
+            if (!found && n == START_TIMEOUT) begin
+                error_count++;
+                $display("[%0t] XGMII CHECKER ERROR: no llegó la palabra de error en %0d palabras", $time, n);
+                return;
+            end
+        end
+
+        compare("error word", {8{ERROR}}, 8'hFF, d, c);
     endtask
 
     // Espera hasta que aparezca una palabra con 0xFE (con c=1) en alguna lane.

@@ -14,6 +14,8 @@ Objetivo: verificar que el RTL cumple la norma IEEE 802.3.
 - Test generar frames de distintos largos para que el terminate (0xFD) caiga en cada uno de los 8 bytes de la palabra XGMII. Verificar que del lado PCS sale el código de terminate correcto según la tabla de la norma.
 - Test generar caracteres de control inexistentes en la tabla de XGMII (por ej. 0x00 o 0x55 con el bit de control en 1). Según norma eso termina en error.
 - Test generar el caracter de error (0xFE) en medio de un frame. Según norma del lado PCS debe salir un bloque de error.
+- Test generar dos starts seguidos sin terminate (start, start, datos, terminate). Según norma (cl. 49.2.13.2.3, máquina de estados del TX) el segundo start llega en TX_D y pasa a TX_E: el TX debe mandar un bloque de error y del lado XGMII RX debe salir 0xFE en las 8 lanes. Los datos siguientes vuelven a TX_D y pasan normal.
+- Test generar un start inmediatamente seguido de un terminate, sin datos en el medio (terminate en lane 0 y en lane 5). Según norma es una secuencia válida (TX_C -> TX_D -> TX_T): el frame debe salir igual del lado XGMII RX.
 
 ## Tests PCS
 
