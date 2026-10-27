@@ -2,9 +2,6 @@
 //
 // Dos start seguidos sin terminate: start, start, 2 palabras de dato y
 // terminate en lane 3.
-// Norma (cl. 49.2.13.2.3, máquina de estados del TX): el primer start pasa de
-// TX_C a TX_D. El segundo start llega en TX_D -> TX_E, y el TX manda un bloque
-// de error (EBLOCK_T). Los datos siguientes vuelven a TX_D y pasan normal.
 // - Lado PCS: start, bloque de error (0x1E con 8 /E/), 2 datos y terminate.
 // - Lado XGMII: start, 0xFE en las 8 lanes, los 2 datos y el terminate.
 // Pasa si error_count == 0 en los dos checkers.

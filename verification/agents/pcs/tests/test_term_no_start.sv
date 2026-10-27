@@ -1,9 +1,9 @@
 // test_term_no_start.sv
 //
 // Terminate sin start previo, entre idles.
-// Norma (cl. 49.2.13.2.3, recepción): un bloque T en RX_C pasa a RX_E. Del
+// Norma: un bloque T en RX_C pasa a RX_E. Del
 // lado XGMII RX tiene que salir la palabra de error (0xFE en las 8 lanes) y
-// después idles (C en RX_E -> RX_C).
+// después idles.
 // Pasa si error_count == 0.
 
 module test (input logic start, output logic done);
@@ -30,7 +30,6 @@ module test (input logic start, output logic done);
                 tb_top.u_xgmii_chk.expect_idle(4);
             end
         join_none
-        // join_none + wait fork en vez de join: ver xgmii/tests/test_happy_path.sv
         wait fork;
 
         done = 1;

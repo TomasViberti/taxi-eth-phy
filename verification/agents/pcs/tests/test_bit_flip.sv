@@ -1,7 +1,7 @@
 // test_bit_flip.sv
 //
 // Un bit invertido en la línea dentro del dato de un frame.
-// Norma (cl. 49.2.10): el descrambler es 1 + x^39 + x^58, así que un bit
+// Norma: el descrambler es 1 + x^39 + x^58, así que un bit
 // errado en la posición k de la línea sale errado en k, k+39 y k+58: 3 bits
 // errados, no 1.
 // - bit 0: los 3 errores caen en el mismo bloque (bits 0, 39 y 58)

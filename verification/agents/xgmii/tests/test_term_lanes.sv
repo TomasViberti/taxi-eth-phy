@@ -31,8 +31,6 @@ module test (input logic start, output logic done);
                 for (int k = 0; k < 8; k++) tb_top.u_xgmii_chk.expect_frame(2, k);
             end
         join_none
-        // join_none + wait fork en vez de join: Verilator 5.036 genera C++
-        // que no compila con join cuando hay varias ramas begin/end
         wait fork;
 
         done = 1;

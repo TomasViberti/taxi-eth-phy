@@ -1,12 +1,10 @@
 // test_no_scramble.sv
 //
 // Frame mandado sin scramblear.
-// Norma: el RX descramblea todo payload (cl. 49.2.10), así que un payload sin
-// scramblear sale distinto de lo que se mandó: el frame no puede salir
-// intacto del lado XGMII RX. El sync header no se scramblea (cl. 49.2.6), así
+// Norma: el RX descramblea todo payload, así que un payload sin
+// scramblear sale distinto de lo que se mandó. El sync header no se scramblea, así
 // que block lock se tiene que mantener.
-// Es un test negativo: pasa si el frame NO sale bien y rx_block_lock nunca
-// baja.
+// Es un test negativo: pasa si el frame NO sale bien y rx_block_lock nunca baja.
 
 module test (input logic start, output logic done);
 
@@ -51,7 +49,6 @@ module test (input logic start, output logic done);
                 end
             end
         join_none
-        // join_none + wait fork en vez de join: ver xgmii/tests/test_happy_path.sv
         wait fork;
 
         if (lock_lost != 0) begin

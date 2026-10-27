@@ -2,9 +2,6 @@
 //
 // Carácter de error (0xFE) en medio de un frame: palabra de dato con 0xFE en
 // lane 3 (c=1 sólo en esa lane).
-// Norma (cl. 49.2.13.2.3, máquina de estados del TX): la palabra no es D, S,
-// T ni C, así que es E. En TX_D pasa a TX_E y el TX manda un bloque de error.
-// El dato siguiente vuelve a TX_D y el frame sigue.
 // - Lado PCS: start, 2 datos, bloque de error (0x1E con 8 /E/), 1 dato y
 //   terminate.
 // - Lado XGMII: start, 2 datos, 0xFE en las 8 lanes, 1 dato y terminate.

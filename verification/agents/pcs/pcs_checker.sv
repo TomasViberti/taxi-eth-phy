@@ -2,7 +2,7 @@
 //
 // Checker PCS 10GBASE-R.
 //
-// - El descrambler (cl. 49.2.10) corre en todos los ciclos.
+// - El descrambler corre en todos los ciclos.
 // - Cada task lee un bloque descrambleado, arma el esperado y los compara (header y payload).
 // - El payload esperado sale de su propia instancia de prbs, con la misma
 //   semilla que el generador XGMII.
@@ -44,8 +44,7 @@ module pcs_checker (pcs_if p_if);
     logic [1:0]  blk_header;
     logic [63:0] blk_data;
 
-    // Descrambleo continuo. El resultado queda registrado: recv_block lo lee
-    // en el flanco siguiente
+    // Descrambleo continuo. El resultado queda registrado
     always @(posedge p_if.clk) begin : descramble
         logic [63:0] d;
         u_prbs.descramble(p_if.data, d);
@@ -82,7 +81,7 @@ module pcs_checker (pcs_if p_if);
         end
     endtask
 
-    // El próximo bloque tiene que ser un bloque de error: 0x1E con 8 /E/
+    // El próximo bloque tiene que ser un bloque de error
     task expect_error_block();
         logic [1:0]  h;
         logic [63:0] d;
@@ -91,8 +90,7 @@ module pcs_checker (pcs_if p_if);
     endtask
 
     // Espera hasta que aparezca un bloque 0x1E con algún /E/ y verifica que
-    // sea el bloque de error completo (8 /E/). Para errores entre idles, donde
-    // no hay un start para alinearse.
+    // sea el bloque de error completo.
     task wait_error_block();
         logic [1:0]  h;
         logic [63:0] d;

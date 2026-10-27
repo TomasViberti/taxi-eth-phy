@@ -2,13 +2,11 @@
 //
 // Sync header inverso: un idle con header de dato (01) y un dato con header
 // de control (10).
-// Norma (cl. 49.2.13.2.3, recepción):
+// Norma:
 // - idle con header 01 es de tipo D. D en RX_C -> RX_E: sale la palabra de
 //   error (0xFE en las 8 lanes).
 // - dato con header 10 dentro del frame: el primer byte se toma como block
-//   type. Sea lo que sea, en RX_D termina en RX_E: si es E, C o S va directo,
-//   y si es T también, porque el bloque siguiente es un dato (T sólo es
-//   válido seguido de C o S). Sale la palabra de error y el frame sigue con
+//   type. Sea lo que sea, en RX_D termina en RX_E. Sale la palabra de error y el frame sigue con
 //   los datos. (Con esta PRBS el byte es 0xFF: se lee como T en la posición 7.)
 // Pasa si error_count == 0.
 
@@ -49,7 +47,6 @@ module test (input logic start, output logic done);
                 tb_top.u_xgmii_chk.expect_terminate(3);
             end
         join_none
-        // join_none + wait fork en vez de join: ver xgmii/tests/test_happy_path.sv
         wait fork;
 
         done = 1;

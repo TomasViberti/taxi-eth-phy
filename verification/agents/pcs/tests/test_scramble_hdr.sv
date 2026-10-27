@@ -1,10 +1,8 @@
 // test_scramble_hdr.sv
 //
-// Sync header scrambleado junto con el payload (inválido según norma, el
-// header no se scramblea, cl. 49.2.6).
+// Sync header scrambleado junto con el payload (inválido según norma).
 // Norma: el header scrambleado sale 00 o 11 en cerca de la mitad de los
-// bloques. Con 16 headers inválidos en una ventana de 64 (cl. 49.2.13.2.2,
-// figura 49-12) se pierde block lock.
+// bloques. Con 16 headers inválidos en una ventana de 64 se pierde block lock.
 // Pasa si rx_block_lock baja.
 
 module test (input logic start, output logic done);

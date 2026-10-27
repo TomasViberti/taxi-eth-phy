@@ -2,10 +2,9 @@
 //
 // Start en una lane no permitida (1, 2, 3, 5, 6, 7). Según la norma sólo
 // puede ir en la lane 0 o en la 4.
-// Norma (cl. 49.2.13.2.3, máquina de estados del TX): la palabra no es S
-// válido, así que es E. En TX_C pasa a TX_E y el TX manda un bloque de error.
-// Después los idles vuelven a TX_C.
-// - Lado PCS: por cada start, bloque de error (0x1E con 8 /E/) e idles.
+// Norma (clausula 49.2.13.2.3): la palabra no es S
+// válido, así que es E.
+// - Lado PCS: por cada start, bloque de error e idles.
 // - Lado XGMII: por cada start, 0xFE en las 8 lanes e idles.
 // Pasa si error_count == 0 en los dos checkers.
 

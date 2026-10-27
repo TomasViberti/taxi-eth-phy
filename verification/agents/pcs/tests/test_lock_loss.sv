@@ -1,12 +1,7 @@
 // test_lock_loss.sv
 //
 // 16 sync headers inválidos en cada ventana de 64 bloques.
-// Norma (cl. 49.2.13.2.2, figura 49-12): con 16 headers inválidos dentro de
-// una ventana de 64 se pierde block lock.
-// La ventana de la máquina de lock no se ve desde afuera, así que el patrón
-// es periódico: 16 headers inválidos seguidos + 48 válidos, repetido. Con
-// período 64, cualquier ventana de 64 bloques tiene exactamente 16 inválidos,
-// esté donde esté alineada.
+// Norma: con 16 headers inválidos dentro de una ventana de 64 se pierde block lock.
 // Pasa si rx_block_lock baja.
 
 module test (input logic start, output logic done);

@@ -3,8 +3,7 @@
 // Caracteres de control que no existen en la tabla 46-3, entre idles:
 // - 0x55 con c=1 en las 8 lanes
 // - 0x00 con c=1 en una sola lane (lane 3), el resto idle
-// Norma (cl. 49.2.13.2.3, máquina de estados del TX): una palabra con un
-// carácter de control inválido no es C, así que es E. En TX_C pasa a TX_E y
+// Norma: una palabra con un carácter de control inválido no es C, así que es E. En TX_C pasa a TX_E y
 // el TX manda un bloque de error entero, aunque el carácter inválido esté en
 // una sola lane. Después los idles vuelven a TX_C.
 // - Lado PCS: bloque de error (0x1E con 8 /E/) y después idles.

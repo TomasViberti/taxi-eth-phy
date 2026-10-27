@@ -3,7 +3,6 @@
 // Happy path PCS: frames correctos de distintos largos, con loopback XGMII.
 // pcs_gen -> RX -> XGMII RX -> TX -> serdes_tx
 // - Lo que sale por XGMII RX tiene que ser el frame equivalente
-//   (cl. 49.2.13, decodificación).
 // - Lo que sale por serdes_tx, descrambleado, tienen que ser los mismos
 //   bloques que mandó pcs_gen (figura 49-7).
 // Pasa si error_count == 0 en los dos checkers.
@@ -44,7 +43,6 @@ module test (input logic start, output logic done);
                 tb_top.u_pcs_chk.expect_frame_lane4(4);
             end
         join_none
-        // join_none + wait fork en vez de join: ver xgmii/tests/test_happy_path.sv
         wait fork;
 
         done = 1;

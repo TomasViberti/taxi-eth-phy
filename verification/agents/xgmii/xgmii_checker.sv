@@ -1,21 +1,6 @@
 // xgmii_checker.sv
 //
 // Checker XGMII.
-//
-// Requisito: tiene que funcionar junto con xgmii_gen o solo (por ejemplo,
-// mirando la salida XGMII cuando el estímulo viene de pcs_gen). Por eso el
-// checker sólo mira la interface XGMII y no recibe nada del generador.
-//
-// Planteo elegido: tasks inversas a las del generador.
-//
-// generador                          checker
-// send_word(d, c)               ->   recv_word(d, c)
-// send_idle(n)                  ->   expect_idle(n)
-// send_start()                  ->   expect_start()
-// send_data(n)                  ->   expect_data(n)
-// send_terminate(n_bytes)       ->   expect_terminate(n_bytes)
-// send_frame(n_words, n_bytes)  ->   expect_frame(n_words, n_bytes)
-//
 // - Cada task lee una palabra, arma la palabra esperada y las compara.
 // - El payload esperado sale de su propia instancia de prbs, con la misma
 //   semilla que el generador: así predice los mismos datos sin hablar con él.

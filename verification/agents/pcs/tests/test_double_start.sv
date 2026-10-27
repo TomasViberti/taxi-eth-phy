@@ -1,7 +1,7 @@
 // test_double_start.sv
 //
 // Dos start seguidos sin terminate: start, start, 2 datos y terminate.
-// Norma (cl. 49.2.13.2.3, recepción): el primer start pasa de RX_C a RX_D. El
+// Norma: el primer start pasa de RX_C a RX_D. El
 // segundo start llega en RX_D -> RX_E: sale la palabra de error (0xFE en las
 // 8 lanes). Los datos siguientes vuelven a RX_D y pasan normal.
 // Pasa si error_count == 0.
@@ -34,7 +34,6 @@ module test (input logic start, output logic done);
                 tb_top.u_xgmii_chk.expect_terminate(3);
             end
         join_none
-        // join_none + wait fork en vez de join: ver xgmii/tests/test_happy_path.sv
         wait fork;
 
         done = 1;

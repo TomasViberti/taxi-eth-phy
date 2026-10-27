@@ -49,9 +49,7 @@ module pcs_gen (pcs_if p_if);
     logic [129:0] queue [$];
 
     // Escritura continua de la línea: en cada flanco scramblea y manda el
-    // próximo bloque de la cola, o un idle si no hay ninguno. Así la línea
-    // nunca queda con un bloque repetido, que el RX descramblearía como basura.
-    // flip se aplica después del scrambler (error en la línea).
+    // próximo bloque de la cola, o un idle si no hay ninguno. 
     always @(posedge p_if.clk) begin : drive
         logic [129:0] blk;
         logic [63:0]  flip;
