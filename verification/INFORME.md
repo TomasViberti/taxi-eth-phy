@@ -75,6 +75,9 @@ Los tests no dependen de la latencia del RTL. Los dos checkers se alinean con lo
 
 20 tests: 13 pasan, 7 fallan.
 
+<img width="1912" height="663" alt="image" src="https://github.com/user-attachments/assets/ca720e2b-4dc4-4edb-9f2a-0b4a0652a196" />
+
+
 ### Tests XGMII
 
 Estímulo con el generador XGMII. Se verifica la salida serdes del TX con el checker PCS y la salida XGMII del RX con el checker XGMII.
