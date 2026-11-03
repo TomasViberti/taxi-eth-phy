@@ -1,20 +1,4 @@
 // tb_top.sv
-//
-// Top del testbench.
-//
-// - Instancia el DUT y los agentes XGMII y PCS (generador + checker c/u).
-// - El checker XGMII siempre mira xgmii_rxd/rxc y el checker PCS siempre mira
-//   serdes_tx. Lo que cambia es de dónde vienen las entradas del DUT, según
-//   loopback_xgmii (lo elige el test, por defecto 0):
-//   0: tests XGMII. Loopback serdes: la salida serdes del TX vuelve al RX.
-//      xgmii_gen -> TX -> serdes_tx -> serdes_rx -> RX -> xgmii_checker
-//                          serdes_tx -> pcs_checker
-//   1: tests PCS. Loopback XGMII: la salida XGMII del RX vuelve al TX.
-//      pcs_gen -> serdes_rx -> RX -> xgmii_rxd/rxc -> xgmii_checker
-//                                    xgmii_rxd/rxc -> TX -> serdes_tx -> pcs_checker
-// - No tiene tests. Instancia "test u_test": cada archivo de test define un
-//   módulo llamado test, y se compila uno solo por simulación.
-// - Clocks, reset y start los maneja Python (cocotb). done lo pone el test.
 
 module tb_top (
     input  logic tx_clk,
@@ -25,42 +9,55 @@ module tb_top (
     output logic done      // test: terminó
 );
 
-    // Interfaces XGMII: una para el lado TX y otra para el lado RX
-    xgmii_if x_if_tx (tx_clk);
-    xgmii_if x_if_rx (rx_clk);
-
-    // Interfaces PCS: salida serdes del TX y entrada serdes del RX
-    pcs_if p_if_tx (tx_clk);
-    pcs_if p_if_rx (rx_clk);
-
-    // Agentes
-    xgmii_gen     u_xgmii_gen (x_if_tx);
-    xgmii_checker u_xgmii_chk (x_if_rx);
-    pcs_gen       u_pcs_gen   (p_if_rx);
-    pcs_checker   u_pcs_chk   (p_if_tx);
-
     // Selección del loopback
     logic loopback_xgmii = 0;
 
-    // Entrada XGMII del TX: xgmii_gen o la salida XGMII del RX
+    // XGMII de 64 bits
+
+    // Salida del generador XGMII (hace de RS del lado TX)
+    logic [63:0] gen_txd;
+    logic [7:0]  gen_txc;
+
+    // Entrada XGMII del TX del DUT: xgmii_gen o la salida XGMII del RX
     logic [63:0] xgmii_txd;
     logic [7:0]  xgmii_txc;
 
-    assign xgmii_txd = loopback_xgmii ? x_if_rx.data    : x_if_tx.data;
-    assign xgmii_txc = loopback_xgmii ? x_if_rx.control : x_if_tx.control;
+    // Salida XGMII del RX del DUT (la mira el checker XGMII)
+    logic [63:0] xgmii_rxd;
+    logic [7:0]  xgmii_rxc;
 
-    // Entrada serdes del RX: la salida serdes del TX o pcs_gen
+    assign xgmii_txd = loopback_xgmii ? xgmii_rxd : gen_txd;
+    assign xgmii_txc = loopback_xgmii ? xgmii_rxc : gen_txc;
+
+    // Serdes: un bloque 64B/66B por ciclo, payload + sync header
+
+    // Salida del generador PCS
+    logic [63:0] gen_rx_data;
+    logic [1:0]  gen_rx_hdr;
+
+    // Salida serdes del TX del DUT (la mira el checker PCS)
+    logic [63:0] serdes_tx_data;
     logic        serdes_tx_data_valid;
+    logic [1:0]  serdes_tx_hdr;
     logic        serdes_tx_hdr_valid;
+
+    // Entrada serdes del RX del DUT: la salida serdes del TX o pcs_gen
     logic [63:0] serdes_rx_data;
     logic        serdes_rx_data_valid;
     logic [1:0]  serdes_rx_hdr;
     logic        serdes_rx_hdr_valid;
 
-    assign serdes_rx_data       = loopback_xgmii ? p_if_rx.data   : p_if_tx.data;
-    assign serdes_rx_data_valid = loopback_xgmii ? 1'b1           : serdes_tx_data_valid;
-    assign serdes_rx_hdr        = loopback_xgmii ? p_if_rx.header : p_if_tx.header;
-    assign serdes_rx_hdr_valid  = loopback_xgmii ? 1'b1           : serdes_tx_hdr_valid;
+    assign serdes_rx_data       = loopback_xgmii ? gen_rx_data : serdes_tx_data;
+    assign serdes_rx_data_valid = loopback_xgmii ? 1'b1        : serdes_tx_data_valid;
+    assign serdes_rx_hdr        = loopback_xgmii ? gen_rx_hdr  : serdes_tx_hdr;
+    assign serdes_rx_hdr_valid  = loopback_xgmii ? 1'b1        : serdes_tx_hdr_valid;
+
+    // Agentes
+
+    xgmii_gen     u_xgmii_gen (.clk(tx_clk), .txd(gen_txd),   .txc(gen_txc));
+    xgmii_checker u_xgmii_chk (.clk(rx_clk), .rxd(xgmii_rxd), .rxc(xgmii_rxc));
+    pcs_gen       u_pcs_gen   (.clk(rx_clk), .rx_data(gen_rx_data),    .rx_hdr(gen_rx_hdr));
+    pcs_checker   u_pcs_chk   (.clk(tx_clk), .tx_data(serdes_tx_data), .tx_hdr(serdes_tx_hdr));
 
     // DUT
     taxi_eth_phy_10g dut (
@@ -73,8 +70,8 @@ module tb_top (
         .xgmii_txd               (xgmii_txd),
         .xgmii_txc               (xgmii_txc),
         .xgmii_tx_valid          (1'b1),
-        .xgmii_rxd               (x_if_rx.data),
-        .xgmii_rxc               (x_if_rx.control),
+        .xgmii_rxd               (xgmii_rxd),
+        .xgmii_rxc               (xgmii_rxc),
         .xgmii_rx_valid          (),
         .tx_gbx_req_sync         (),
         .tx_gbx_req_stall        (),
@@ -82,9 +79,9 @@ module tb_top (
         .rx_gbx_sync             (),
 
         // SERDES
-        .serdes_tx_data          (p_if_tx.data),
+        .serdes_tx_data          (serdes_tx_data),
         .serdes_tx_data_valid    (serdes_tx_data_valid),
-        .serdes_tx_hdr           (p_if_tx.header),
+        .serdes_tx_hdr           (serdes_tx_hdr),
         .serdes_tx_hdr_valid     (serdes_tx_hdr_valid),
         .serdes_tx_gbx_req_sync  (1'b0),
         .serdes_tx_gbx_req_stall (1'b0),

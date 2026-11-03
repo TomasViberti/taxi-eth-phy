@@ -1,28 +1,14 @@
 // xgmii_checker.sv
 //
-// Checker XGMII.
-//
-// Requisito: tiene que funcionar junto con xgmii_gen o solo (por ejemplo,
-// mirando la salida XGMII cuando el estímulo viene de pcs_gen). Por eso el
-// checker sólo mira la interface XGMII y no recibe nada del generador.
-//
-// Planteo elegido: tasks inversas a las del generador.
-//
-// generador                          checker
-// send_word(d, c)               ->   recv_word(d, c)
-// send_idle(n)                  ->   expect_idle(n)
-// send_start()                  ->   expect_start()
-// send_data(n)                  ->   expect_data(n)
-// send_terminate(n_bytes)       ->   expect_terminate(n_bytes)
-// send_frame(n_words, n_bytes)  ->   expect_frame(n_words, n_bytes)
-//
-// - Cada task lee una palabra, arma la palabra esperada y las compara.
-// - El payload esperado sale de su propia instancia de prbs, con la misma
-//   semilla que el generador: así predice los mismos datos sin hablar con él.
-// - Cada diferencia suma 1 a error_count. El test mira error_count al final.
-// - recv_word es la única task que lee de la interface.
+// Checker XGMII
 
-module xgmii_checker (xgmii_if x_if);
+module xgmii_checker #(
+    parameter string NAME = "XGMII"   // sale en el log: XGMII o PCS (cuando lo usa pcs_checker)
+) (
+    input logic        clk,   
+    input logic [63:0] rxd,   
+    input logic [7:0]  rxc    
+);
 
     // Caracteres de control (tabla 46-3)
     localparam logic [7:0] IDLE  = 8'h07;
@@ -30,230 +16,174 @@ module xgmii_checker (xgmii_if x_if);
     localparam logic [7:0] TERM  = 8'hFD;
     localparam logic [7:0] ERROR = 8'hFE;
 
-    // Preámbulo y SFD
     localparam logic [7:0] PRE = 8'h55;
     localparam logic [7:0] SFD = 8'hD5;
 
-    // Máximo de palabras que expect_start espera al start antes de dar error
-    localparam int START_TIMEOUT = 1000;
+    typedef enum {UNLOCKED, S_IDLE, S_PREAMBLE, S_SFD, S_DATA} state_t;
 
-    // Predicción del payload
-    prbs u_prbs ();
+    state_t state = UNLOCKED;
+    int     pre_count; 
 
+    int frame_count    = 0;     // frames completos sin errores
+    int e_count        = 0;     // bytes de error recibidos
+    int prbs_err_count = 0;     // datos que no cumplen la PRBS31 de la norma
+    int seq_err_count  = 0;     // bytes fuera de la secuencia de la figura 46-3
+    int unlock_count   = 0;     // veces que se deslockeó
+
+    // Contadores que no dieron lo que esperaba el test. Lo lee Python
     int error_count = 0;
 
-    // Lee la palabra presente en la interface en el próximo flanco
-    task recv_word(output logic [63:0] d, output logic [7:0] c);
-        @(posedge x_if.clk);
-        d = x_if.data;
-        c = x_if.control;
+    // Ultimos 31 bits recibidos
+    logic [30:0] prbs_reg; 
+
+    // Cuantos bits se cargaron desde que se hizo un reset
+    int          prbs_fill;  
+
+    // En cada flanco, los 8 bytes de la palabra en orden de lane
+    always @(posedge clk) begin : monitor
+        for (int lane = 0; lane < 8; lane++)
+            check_byte(lane, rxc[lane], rxd[8*lane +: 8]);
+    end
+
+    // Empieza a sincronizar la PRBS de cero
+    task prbs_reset();
+        prbs_fill = 0;
     endtask
 
-    // Compara la palabra recibida con la esperada. Si no coinciden, suma un error
-    task compare(input string what,
-                 input logic [63:0] exp_d, input logic [7:0] exp_c,
-                 input logic [63:0] d,     input logic [7:0] c);
-        if (d !== exp_d || c !== exp_c) begin
+    // Chequea un bit de dato recibido. bit_err = 1 si no es el que sigue en la PRBS31
+    task prbs_check_bit(input logic bit_in, output logic bit_err);
+
+        // Todavía no hay 31 bits
+        if (prbs_fill < 31) begin
+            bit_err = 0;
+            prbs_fill++;
+        end 
+        else begin
+            // Mismo polinomio que generate_prbs de prbs.sv y salida invertida (cl. 49.2.8)
+            bit_err = (bit_in != ~(prbs_reg[27] ^ prbs_reg[30]));
+        end
+
+        // Entra el bit recibido
+        prbs_reg = {prbs_reg[29:0], bit_in};
+    endtask
+
+    // /S/ válido: control 0xFB en lane 0 o 4
+    function automatic logic is_start(input int lane, input logic is_ctrl, input logic [7:0] octet);
+        return is_ctrl && octet == START && (lane == 0 || lane == 4);
+    endfunction
+
+    // Un byte de la XGMII: según el estado, qué se espera y a dónde se pasa
+    task check_byte(input int lane, input logic is_ctrl, input logic [7:0] octet);
+        logic bit_err;
+
+        // /E/ se reconoce siempre, lockeado o no: es un carácter de control
+        if (is_ctrl && octet == ERROR) e_count++;
+
+        case (state)
+
+            UNLOCKED: begin
+                if (is_ctrl && octet == IDLE)
+                    lock(S_IDLE, lane);
+                else if (is_start(lane, is_ctrl, octet)) begin
+                    pre_count = 0;
+                    lock(S_PREAMBLE, lane);
+                end
+            end
+
+            // Entre frames: sólo /I/, o /S/ que empieza el próximo frame
+            S_IDLE: begin
+                if (is_ctrl && octet == IDLE) begin
+                    // sigue entre frames
+                end else if (is_start(lane, is_ctrl, octet)) begin
+                    pre_count = 0;
+                    state = S_PREAMBLE;
+                end else
+                    unlock(lane, is_ctrl, octet, "se esperaba /I/ o /S/");
+            end
+
+            // Después del /S/: 6 bytes de dato 0x55
+            S_PREAMBLE: begin
+                if (!is_ctrl && octet == PRE) begin
+                    pre_count++;
+                    if (pre_count == 6) state = S_SFD;
+                end else
+                    unlock(lane, is_ctrl, octet, "se esperaba preámbulo (0x55)");
+            end
+
+            // Después del preámbulo: 1 byte de dato 0xD5.
+            S_SFD: begin
+                if (!is_ctrl && octet == SFD) begin
+                    // Aplico reset de la PRBS para que empiece a sincronizar desde cero
+                    prbs_reset();
+                    state = S_DATA;
+                end else
+                    unlock(lane, is_ctrl, octet, "se esperaba SFD (0xD5)");
+            end
+
+            // Datos hasta el /T/, que puede caer en cualquier
+            // lane. Cada bit de dato pasa por el checker PRBS31,
+            // bit 0 primero
+            S_DATA: begin
+                if (!is_ctrl) begin
+                    for (int i = 0; i < 8; i++) begin
+                        prbs_check_bit(octet[i], bit_err);
+                        if (bit_err) begin
+                            unlock(lane, is_ctrl, octet, $sformatf("el bit %0d no cumple la PRBS31", i), 1);
+                            break;
+                        end
+                    end
+                end else if (octet == TERM) begin
+                    frame_count++;
+                    state = S_IDLE;
+                end else
+                    unlock(lane, is_ctrl, octet, "se esperaba dato o /T/");
+            end
+
+        endcase
+    endtask
+
+    // Pasa a un estado lockeado desde UNLOCKED
+    task lock(input state_t next, input int lane);
+        $display("[%0t] %s CHECKER: lock en lane %0d (%s)", $time, NAME, lane, next.name());
+        state = next;
+    endtask
+
+    task unlock(input int lane, input logic is_ctrl, input logic [7:0] octet,
+                input string why, input bit prbs_err = 0);
+        if (prbs_err)
+            prbs_err_count++;
+        else if (!(is_ctrl && octet == ERROR))
+            seq_err_count++;     // un /E/ ya se contó en e_count
+        unlock_count++;
+        $display("[%0t] %s CHECKER: unlock en lane %0d (%s): ctrl=%b octet=%h, %s",
+                 $time, NAME, lane, state.name(), is_ctrl, octet, why);
+        state = UNLOCKED;
+    endtask
+
+    // Pone los contadores en 0. Se llama en los tests antes de contar errores
+    task clear();
+        frame_count    = 0;
+        e_count        = 0;
+        prbs_err_count = 0;
+        seq_err_count  = 0;
+        unlock_count   = 0;
+    endtask
+
+    // Compara lo que recibe el checker con la norma. Cada contador que no coincide suma 1 a error_count
+    task check_counts(input int frames, input int e, input int prbs, input int seq);
+        $display("[%0t] %s CHECKER: frames=%0d e=%0d prbs=%0d seq=%0d unlocks=%0d",
+                 $time, NAME, frame_count, e_count, prbs_err_count, seq_err_count, unlock_count);
+        check_one("frames", frame_count,    frames);
+        check_one("e",      e_count,        e);
+        check_one("prbs",   prbs_err_count, prbs);
+        check_one("seq",    seq_err_count,  seq);
+    endtask
+
+    task check_one(input string what, input int got, input int expected);
+        if (got != expected) begin
             error_count++;
-            $display("[%0t] XGMII CHECKER ERROR en %s", $time, what);
-            $display("    esperado: c=%b d=%h", exp_c, exp_d);
-            $display("    recibido: c=%b d=%h", c, d);
-        end
-    endtask
-
-    // n palabras de idle
-    task expect_idle(input int n);
-        logic [63:0] d;
-        logic [7:0]  c;
-        repeat (n) begin
-            recv_word(d, c);
-            compare("idle", {8{IDLE}}, 8'hFF, d, c);
-        end
-    endtask
-
-    // Espera hasta que aparezca el start en lane 0 y verifica las lanes 1-7
-    // (por defecto preámbulo y SFD).
-    task expect_start(input logic [55:0] content = {SFD, {6{PRE}}});
-        logic [63:0] d;
-        logic [7:0]  c;
-        int n;
-
-        n = 0;
-        recv_word(d, c);
-        while (!(c[0] && d[7:0] == START)) begin
-            n++;
-            if (n == START_TIMEOUT) begin
-                error_count++;
-                $display("[%0t] XGMII CHECKER ERROR: no llegó el start en %0d palabras", $time, n);
-                return;
-            end
-            recv_word(d, c);
-        end
-
-        compare("start", {content, START}, 8'h01, d, c);
-    endtask
-
-    // n palabras de dato: tienen que coincidir con la PRBS
-    task expect_data(input int n);
-        logic [63:0] data;
-        logic [63:0] d;
-        logic [7:0]  c;
-        repeat (n) begin
-            u_prbs.generate_prbs(data);
-            recv_word(d, c);
-            compare("data", data, 8'h00, d, c);
-        end
-    endtask
-
-    // Una palabra de dato con los bits de mask invertidos respecto de la PRBS
-    // (errores esperados en la línea)
-    task expect_data_mask(input logic [63:0] mask);
-        logic [63:0] data;
-        logic [63:0] d;
-        logic [7:0]  c;
-        u_prbs.generate_prbs(data);
-        recv_word(d, c);
-        compare("data mask", data ^ mask, 8'h00, d, c);
-    endtask
-
-    // Avanza la PRBS n palabras sin leer la interface. Para cuando el
-    // generador mandó datos de la PRBS que el DUT tiene que reemplazar por
-    // error: así el checker sigue alineado con el generador.
-    task skip_data(input int n);
-        logic [63:0] data;
-        repeat (n) u_prbs.generate_prbs(data);
-    endtask
-
-    // Última palabra del frame: n_bytes de dato, el FD en la lane n_bytes y el
-    // resto idle. Se arma igual que en el generador.
-    task expect_terminate(input int n_bytes);
-        logic [63:0] data;
-        logic [63:0] exp_d;
-        logic [7:0]  exp_c;
-        logic [63:0] d;
-        logic [7:0]  c;
-
-        u_prbs.generate_prbs(data);
-
-        for (int lane = 0; lane < 8; lane++) begin
-            if (lane < n_bytes) begin
-                exp_d[8*lane +: 8] = data[8*lane +: 8];
-                exp_c[lane]        = 1'b0;
-            end else if (lane == n_bytes) begin
-                exp_d[8*lane +: 8] = TERM;
-                exp_c[lane]        = 1'b1;
-            end else begin
-                exp_d[8*lane +: 8] = IDLE;
-                exp_c[lane]        = 1'b1;
-            end
-        end
-
-        recv_word(d, c);
-        compare("terminate", exp_d, exp_c, d, c);
-    endtask
-
-    // Frame completo: start, n_words de dato y terminate.
-    task expect_frame(input int n_words, input int n_bytes);
-        expect_start();
-        expect_data(n_words);
-        expect_terminate(n_bytes);
-    endtask
-
-    // Espejo de send_frame_lane4: frame con start en lane 4, corrido 4 bytes
-    task expect_frame_lane4(input int n_words);
-        logic [63:0] data;
-        logic [31:0] carry;
-        logic [63:0] d;
-        logic [7:0]  c;
-        int n;
-
-        // Espera el start en lane 4
-        n = 0;
-        recv_word(d, c);
-        while (!(c[4] && d[39:32] == START)) begin
-            n++;
-            if (n == START_TIMEOUT) begin
-                error_count++;
-                $display("[%0t] XGMII CHECKER ERROR: no llegó el start en lane 4 en %0d palabras", $time, n);
-                return;
-            end
-            recv_word(d, c);
-        end
-        compare("start lane 4", {{3{PRE}}, START, {4{IDLE}}}, 8'h1F, d, c);
-        carry = {SFD, {3{PRE}}};
-
-        repeat (n_words) begin
-            u_prbs.generate_prbs(data);
-            recv_word(d, c);
-            compare("data lane 4", {data[31:0], carry}, 8'h00, d, c);
-            carry = data[63:32];
-        end
-
-        recv_word(d, c);
-        compare("terminate lane 4", {{3{IDLE}}, TERM, carry}, 8'hF0, d, c);
-    endtask
-
-    // La próxima palabra tiene que ser un bloque de error completo: 0xFE en las
-    // 8 lanes (EBLOCK_T del TX, cl. 49.2.13.2.3)
-    task expect_error_word();
-        logic [63:0] d;
-        logic [7:0]  c;
-        recv_word(d, c);
-        compare("error word", {8{ERROR}}, 8'hFF, d, c);
-    endtask
-
-    // Espera hasta que aparezca una palabra con algún 0xFE (con c=1) y verifica
-    // que sea la palabra de error completa (0xFE en las 8 lanes). Para errores
-    // entre idles, donde no hay un start para alinearse.
-    task wait_error_word();
-        logic [63:0] d;
-        logic [7:0]  c;
-        logic        found;
-        int n;
-
-        n = 0;
-        found = 0;
-        while (!found) begin
-            recv_word(d, c);
-            for (int lane = 0; lane < 8; lane++)
-                if (c[lane] && d[8*lane +: 8] == ERROR) found = 1;
-
-            n++;
-            if (!found && n == START_TIMEOUT) begin
-                error_count++;
-                $display("[%0t] XGMII CHECKER ERROR: no llegó la palabra de error en %0d palabras", $time, n);
-                return;
-            end
-        end
-
-        compare("error word", {8{ERROR}}, 8'hFF, d, c);
-    endtask
-
-    // Espera hasta que aparezca una palabra con 0xFE (con c=1) en alguna lane.
-    // Según lo que mandó el generador, el error sale distinto:
-    // - palabra que mezcla datos y controles de forma inválida: el TX la
-    //   reemplaza entera por un bloque de error -> 0xFE en las 8 lanes.
-    // - palabra toda de control con un carácter inválido: el TX codifica
-    //   sólo esa lane como /E/ -> 0xFE sólo en esa lane.
-    task expect_error();
-        logic [63:0] d;
-        logic [7:0]  c;
-        logic        found;
-        int n;
-
-        n = 0;
-        found = 0;
-        while (!found) begin
-            recv_word(d, c);
-            for (int lane = 0; lane < 8; lane++)
-                if (c[lane] && d[8*lane +: 8] == ERROR) found = 1;
-
-            n++;
-            if (!found && n == START_TIMEOUT) begin
-                error_count++;
-                $display("[%0t] XGMII CHECKER ERROR: no llegó la palabra de error en %0d palabras", $time, n);
-                return;
-            end
+            $display("[%0t] %s CHECKER ERROR: %s = %0d, se esperaba %0d",
+                     $time, NAME, what, got, expected);
         end
     endtask
 

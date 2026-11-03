@@ -15,18 +15,35 @@ Simulador Verilator 5.036 con cocotb 2.1.0. Los tests están escritos en SystemV
 
 ### Agentes
 
-Hay dos agentes, uno por interfaz del DUT, y los dos tienen el mismo esquema:
+Hay dos agentes, uno por interfaz del DUT:
 
-- Interface: punto de contacto con el DUT. Ni el generador ni el checker se conectan directo al DUT, eso se decide en `tb_top`.
+- Puertos: cada agente tiene puertos `logic` con el clock y las señales que maneja. En `tb_top` se conectan con `logic` a los puertos del DUT (no se usa `interface`: son sólo dos señales por agente).
 - Generador: tasks que hacen lo que define la norma (idle, start, datos, terminate, frame completo) y tasks de inyección de errores que la rompen a propósito.
-- Checker: tasks inversas a las del generador (`send_frame` -> `expect_frame`, etc.). Cada una lee una palabra o bloque, arma lo esperado y compara. Cada diferencia suma 1 a `error_count`.
+- Checker XGMII: máquina de estados con lock que corre sola en todos los ciclos (ver abajo). Cuenta lo que ve y al final el test compara esos contadores con lo que pide la norma.
+- Checker PCS: también corre solo. Descramblea cada bloque (cl. 49.2.10), lo valida (cl. 49.2.4.6) y lo pasa a los 8 caracteres XGMII que representa según la figura 49-7. Esa palabra entra a una copia del checker XGMII, que verifica la estructura del frame y la PRBS con el mismo lock. Suma un contador propio, `blk_err_count`, de bloques inválidos.
 
-| Agente | Interface | Qué maneja |
+| Agente | Puertos | Qué maneja |
 |---|---|---|
-| XGMII | `xgmii_if`: `data[63:0]`, `control[7:0]` | Palabras XGMII de 64 bits, 8 lanes |
-| PCS | `pcs_if`: `data[63:0]`, `header[1:0]` | Bloques 64B/66B. El generador scramblea, el checker descramblea |
+| XGMII | gen: `txd[63:0]`, `txc[7:0]`; checker: `rxd[63:0]`, `rxc[7:0]` | Palabras XGMII de 64 bits, 8 lanes |
+| PCS | gen: `rx_data[63:0]`, `rx_hdr[1:0]`; checker: `tx_data[63:0]`, `tx_hdr[1:0]` | Bloques 64B/66B. El generador scramblea, el checker descramblea |
 
-El payload de los frames sale de una PRBS31 (`common/prbs.sv`). El generador y el checker tienen cada uno su propia instancia con la misma semilla, así el checker predice los datos sin hablar con el generador. En `prbs.sv` también están el scrambler y el descrambler (1 + x^39 + x^58).
+El payload de los frames sale de una PRBS31 (`common/prbs.sv`, cl. 49.2.8). Los checkers no usan semilla: verifica el payload con el checker PRBS31 auto-sincronizante de la cl. 49.2.12, que predice cada bit a partir de los 31 bits recibidos anteriores. En `prbs.sv` también están el scrambler y el descrambler (1 + x^39 + x^58).
+
+### Checker XGMII con lock
+
+La XGMII es un flujo de bytes (cl. 46.2). En cada ciclo el checker recorre las 8 lanes en orden y cada byte hace avanzar una FSM que sigue la estructura de la figura 46-3:
+
+```
+UNLOCKED --/I/--> IDLE --/S/ (lane 0 o 4)--> PREAMBLE --6 x 0x55--> SFD --0xD5--> DATA --/T/--> IDLE
+```
+
+- UNLOCKED: no verifica nada. Se lockea con un /I/ (entre frames) o con un /S/ en lane 0 o 4.
+- Lockeado: cada byte tiene que ser el que sigue en la secuencia. Los datos pasan por el checker PRBS31; los primeros 31 bits de cada frame sólo lo sincronizan.
+- Ante el primer byte que no es el esperado se deslockea y no verifica nada hasta el próximo /I/ o /S/. Así un error no se arrastra al resto del frame.
+
+Contadores: `frame_count` (frames completos sin errores), `e_count` (bytes /E/, una palabra de error = 8), `prbs_err_count`, `seq_err_count` (bytes fuera de la secuencia) y `unlock_count`. El test llama a `clear()` antes del estímulo y a `check_counts(frames, e, prbs, seq)` al final; cada contador que no coincide suma 1 a `error_count`.
+
+La idea de lock viene del block lock del PCS (cl. 49.2.9, figura 49-14), pero ahí se pierde con 16 headers malos en 64 bloques. Deslockearse al primer error es un criterio de verificación, no de la norma. La cl. 46 no define lock para el RS.
 
 Para el sync header se usa la convención bit 0 = primer bit transmitido, igual que para los datos. El "01" de la norma (dato) queda como `header = 2'b10`.
 
@@ -52,9 +69,7 @@ pcs_gen -> RX -> xgmii_rxd -+-> xgmii_checker      (lado contrario: verifica el 
 
 ### Latencia
 
-Los tests no dependen de la latencia del RTL. El checker se alinea por contenido: `expect_start` busca el start donde aparezca, y desde ahí compara palabra por palabra. La PRBS del checker avanza por palabra esperada y no por ciclo. Lo único que se asume es que dentro de un frame las palabras llegan seguidas, que es lo que pide la norma.
-
-Para errores entre idles, donde no hay start para alinearse, el checker busca la palabra o el bloque de error (`wait_error_word`, `wait_error_block`) y cuando lo encuentra verifica que sea el completo.
+Los tests no dependen de la latencia del RTL. Los dos checkers se alinean con lo que sale: se lockean en el primer /I/ o /S/ que ven, y el test espera con idles a que salga todo antes de llamar a `check_counts`. El descrambler del checker PCS es auto-sincronizante (cl. 49.2.6), así que tampoco necesita alinearse con el scrambler del TX.
 
 ## Tests y resultados
 
@@ -79,7 +94,7 @@ El ítem de palabras XGMII de 32 bits no tiene test: el RTL tiene la interfaz XG
 
 ### Tests PCS
 
-Estímulo con el generador PCS. Se verifica la salida XGMII del RX con el checker XGMII. El checker PCS al final del loopback XGMII se usa en el happy path.
+Estímulo con el generador PCS. Se verifica la salida XGMII del RX con el checker XGMII. El checker PCS al final del loopback XGMII se verifica en el happy path.
 
 | Test | Ítem | Qué se manda | Qué pide la norma | Resultado |
 |---|---|---|---|---|

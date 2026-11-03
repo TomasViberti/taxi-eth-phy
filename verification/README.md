@@ -13,7 +13,7 @@ verification/
 ├── TEST_PLAN.md
 ├── common/          # utilidades compartidas (PRBS)
 ├── agents/
-│   ├── xgmii/       # agente XGMII: interface + generador + checker
+│   ├── xgmii/       # agente XGMII: generador + checker
 │   │   └── tests/   # tests con estímulo XGMII, uno por ítem del TEST_PLAN
 │   └── pcs/         # agente PCS: mismo esquema
 │       └── tests/   # tests con estímulo PCS, uno por ítem del TEST_PLAN

@@ -10,6 +10,7 @@
 //   y si es T también, porque el bloque siguiente es un dato (T sólo es
 //   válido seguido de C o S). Sale la palabra de error y el frame sigue con
 //   los datos. (Con esta PRBS el byte es 0xFF: se lee como T en la posición 7.)
+// - Lado XGMII: 2 palabras de error: 16 /E/. El frame no cuenta como correcto.
 // Pasa si error_count == 0.
 
 module test (input logic start, output logic done);
@@ -25,32 +26,21 @@ module test (input logic start, output logic done);
         while (!tb_top.dut.rx_block_lock) tb_top.u_pcs_gen.send_idle(1);
         tb_top.u_pcs_gen.send_idle(10);
 
-        fork
-            begin
-                tb_top.u_pcs_gen.send_idle_hdr(2'b10);    // header de dato
-                tb_top.u_pcs_gen.send_idle(20);
+        // El checker XGMII cuenta desde acá
+        tb_top.u_xgmii_chk.clear();
 
-                tb_top.u_pcs_gen.send_start();
-                tb_top.u_pcs_gen.send_data(2);
-                tb_top.u_pcs_gen.send_data_hdr(2'b01);    // header de control
-                tb_top.u_pcs_gen.send_data(2);
-                tb_top.u_pcs_gen.send_terminate(3);
-                tb_top.u_pcs_gen.send_idle(20);
-            end
-            begin
-                tb_top.u_xgmii_chk.wait_error_word();
-                tb_top.u_xgmii_chk.expect_idle(4);
+        tb_top.u_pcs_gen.send_idle_hdr(2'b10);    // header de dato
+        tb_top.u_pcs_gen.send_idle(20);
 
-                tb_top.u_xgmii_chk.expect_start();
-                tb_top.u_xgmii_chk.expect_data(2);
-                tb_top.u_xgmii_chk.expect_error_word();
-                tb_top.u_xgmii_chk.skip_data(1);
-                tb_top.u_xgmii_chk.expect_data(2);
-                tb_top.u_xgmii_chk.expect_terminate(3);
-            end
-        join_none
-        // join_none + wait fork en vez de join: ver xgmii/tests/test_happy_path.sv
-        wait fork;
+        tb_top.u_pcs_gen.send_start();
+        tb_top.u_pcs_gen.send_data(2);
+        tb_top.u_pcs_gen.send_data_hdr(2'b01);    // header de control
+        tb_top.u_pcs_gen.send_data(2);
+        tb_top.u_pcs_gen.send_terminate(3);
+        tb_top.u_pcs_gen.send_idle(20);
+
+        // Salida XGMII del RX
+        tb_top.u_xgmii_chk.check_counts(.frames(0), .e(16), .prbs(0), .seq(0));
 
         done = 1;
     end

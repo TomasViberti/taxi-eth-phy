@@ -8,6 +8,8 @@
 // - Lado PCS: start, 2 datos, bloque de error (0x1E con 8 /E/), 1 dato y
 //   terminate.
 // - Lado XGMII: start, 2 datos, 0xFE en las 8 lanes, 1 dato y terminate.
+//   El checker cuenta 8 /E/ y se deslockea en el primero: ese frame no cuenta
+//   como correcto. Vuelve a lockearse en los idles.
 // Pasa si error_count == 0 en los dos checkers.
 
 module test (input logic start, output logic done);
@@ -20,34 +22,22 @@ module test (input logic start, output logic done);
         while (!tb_top.dut.rx_block_lock) tb_top.u_xgmii_gen.send_idle(1);
         tb_top.u_xgmii_gen.send_idle(10);
 
-        fork
-            begin
-                tb_top.u_xgmii_gen.send_start();
-                tb_top.u_xgmii_gen.send_data(2);
-                // dato con 0xFE en lane 3
-                tb_top.u_xgmii_gen.send_word(64'h11223344_FE667788, 8'b0000_1000);
-                tb_top.u_xgmii_gen.send_data(1);
-                tb_top.u_xgmii_gen.send_terminate(4);
-                tb_top.u_xgmii_gen.send_idle(20);
-            end
-            // Salida serdes del TX
-            begin
-                tb_top.u_pcs_chk.expect_start();
-                tb_top.u_pcs_chk.expect_data(2);
-                tb_top.u_pcs_chk.expect_error_block();
-                tb_top.u_pcs_chk.expect_data(1);
-                tb_top.u_pcs_chk.expect_terminate(4);
-            end
-            // Salida XGMII del RX, después del loopback serdes
-            begin
-                tb_top.u_xgmii_chk.expect_start();
-                tb_top.u_xgmii_chk.expect_data(2);
-                tb_top.u_xgmii_chk.expect_error_word();
-                tb_top.u_xgmii_chk.expect_data(1);
-                tb_top.u_xgmii_chk.expect_terminate(4);
-            end
-        join_none
-        wait fork;
+        // Los dos checkers cuentan desde acá
+        tb_top.u_pcs_chk.clear();
+        tb_top.u_xgmii_chk.clear();
+
+        tb_top.u_xgmii_gen.send_start();
+        tb_top.u_xgmii_gen.send_data(2);
+        // dato con 0xFE en lane 3
+        tb_top.u_xgmii_gen.send_word(64'h11223344_FE667788, 8'b0000_1000);
+        tb_top.u_xgmii_gen.send_data(1);
+        tb_top.u_xgmii_gen.send_terminate(4);
+        tb_top.u_xgmii_gen.send_idle(20);
+
+        // Salida serdes del TX
+        tb_top.u_pcs_chk.check_counts(.frames(0), .e(8), .prbs(0), .seq(0));
+        // Salida XGMII del RX, después del loopback serdes
+        tb_top.u_xgmii_chk.check_counts(.frames(0), .e(8), .prbs(0), .seq(0));
 
         done = 1;
     end

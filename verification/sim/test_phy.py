@@ -85,10 +85,8 @@ rtl_sources = [
 # Verificación: utilidades, agentes XGMII y PCS y tb
 ver_sources = [
     os.path.join(ver_dir, 'common', 'prbs.sv'),
-    os.path.join(agents_dir, 'xgmii', 'xgmii_if.sv'),
     os.path.join(agents_dir, 'xgmii', 'xgmii_gen.sv'),
     os.path.join(agents_dir, 'xgmii', 'xgmii_checker.sv'),
-    os.path.join(agents_dir, 'pcs', 'pcs_if.sv'),
     os.path.join(agents_dir, 'pcs', 'pcs_gen.sv'),
     os.path.join(agents_dir, 'pcs', 'pcs_checker.sv'),
     os.path.join(ver_dir, 'tb', 'tb_top.sv'),

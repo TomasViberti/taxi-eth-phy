@@ -67,19 +67,33 @@ Eso lo configura `verification/sim/pytest.ini` (`-v --tb=no -rN`). Si se corre p
 
 ### Ver por qué falló un test
 
-Con `-s` se ve el log de la simulación, incluidos los mensajes de los checkers:
+Con `-s` se ve el log de la simulación de los tests que fallan, incluidos los mensajes de los checkers:
 
 ```bash
 pytest test_phy.py -s -k "xgmii and double_start"
 ```
 
-Cada error del checker sale así:
+Para ver el log también de los tests que pasan:
+
+```bash
+pytest test_phy.py -o log_cli=true --log-cli-level=INFO -k "xgmii and happy"
+```
+
+El checker XGMII avisa cada lock y unlock, y al final muestra sus contadores:
 
 ```
-[531000] PCS CHECKER ERROR en error block
-    esperado: header=01 data=3c78f1e3c78f1e1e
-    recibido: header=01 data=d555555555555578
+[659000] XGMII CHECKER: unlock en lane 0 (S_DATA): c=1 d=fb, se esperaba dato o /T/
+[659000] XGMII CHECKER: frames=0 e=0 prbs=0 seq=1 unlocks=1
+[659000] XGMII CHECKER ERROR: e = 0, se esperaba 8
 ```
+
+El checker PCS muestra lo mismo con `PCS CHECKER`, y además avisa cada bloque inválido:
+
+```
+[32000] PCS CHECKER: bloque inválido hdr=01 block=3c78f7800000001e, código de control que no está en la tabla 49-1
+```
+
+Los que salen antes del `clear()` del test son del arranque (reset y descrambler todavía sin sincronizar) y no cuentan.
 
 El número entre corchetes es el tiempo de simulación en ps, sirve para ir directo a ese punto en GTKWave.
 
@@ -114,16 +128,19 @@ En el árbol de GTKWave (panel SST) todo cuelga de `tb_top`:
 
 | Señal | Formato | Qué es |
 |---|---|---|
-| `x_if_tx.data` / `x_if_tx.control` | Hex / Binary | Lo que manda el generador XGMII |
-| `x_if_rx.data` / `x_if_rx.control` | Hex / Binary | Salida XGMII del RX (lo que mira el checker XGMII) |
-| `p_if_rx.data` / `p_if_rx.header` | Hex / Binary | Lo que manda el generador PCS (scrambleado) |
-| `p_if_tx.data` / `p_if_tx.header` | Hex / Binary | Salida serdes del TX (scrambleada) |
-| `u_pcs_chk.blk_data` / `u_pcs_chk.blk_header` | Hex / Binary | Salida serdes del TX ya descrambleada por el checker PCS |
+| `gen_txd` / `gen_txc` | Hex / Binary | Lo que manda el generador XGMII |
+| `xgmii_rxd` / `xgmii_rxc` | Hex / Binary | Salida XGMII del RX (lo que mira el checker XGMII) |
+| `gen_rx_data` / `gen_rx_hdr` | Hex / Binary | Lo que manda el generador PCS (scrambleado) |
+| `serdes_tx_data` / `serdes_tx_hdr` | Hex / Binary | Salida serdes del TX (scrambleada) |
+| `u_pcs_chk.dec_data` / `u_pcs_chk.dec_ctrl` | Hex / Binary | Salida serdes del TX descrambleada y decodificada a XGMII por el checker PCS (figura 49-7) |
+| `u_pcs_chk.u_frame_chk.state` | | Estado de la FSM de frame del checker PCS |
 | `u_xgmii_chk.error_count`, `u_pcs_chk.error_count` | Decimal | Errores de cada checker. Tienen que quedar en 0 |
+| `u_xgmii_chk.state` | | Estado del checker XGMII (UNLOCKED, S_IDLE, S_PREAMBLE, S_SFD, S_DATA) |
+| `u_xgmii_chk.frame_count`, `e_count`, `prbs_err_count`, `seq_err_count` | Decimal | Lo que fue viendo el checker XGMII |
 | `dut.rx_block_lock` | | Block lock del RX |
 | `loopback_xgmii` | | 0 = conexión de los tests XGMII, 1 = conexión de los tests PCS |
 
-El formato se cambia con clic derecho sobre la señal, *Data Format*. Lo que está en `p_if_tx` está scrambleado y no se puede leer a ojo; para ver los block types hay que mirar `u_pcs_chk.blk_data` (el byte bajo, `[7:0]`, es el block type).
+El formato se cambia con clic derecho sobre la señal, *Data Format*. Lo que está en `serdes_tx_data` está scrambleado y no se puede leer a ojo; para leerlo hay que mirar `u_pcs_chk.dec_data` / `dec_ctrl`, que es el bloque ya pasado a la palabra XGMII que representa.
 
 Una vez armada la vista conviene guardarla con *File, Write Save File* (por ejemplo `phy.gtkw`) y después abrirla junto con cualquier test:
 
@@ -150,15 +167,17 @@ module test (input logic start, output logic done);
         while (!tb_top.dut.rx_block_lock) tb_top.u_pcs_gen.send_idle(1);
         tb_top.u_pcs_gen.send_idle(10);
 
-        fork
-            begin
-                // generador
-            end
-            begin
-                // checker
-            end
-        join_none
-        wait fork;
+        // Los checkers cuentan desde acá
+        tb_top.u_pcs_chk.clear();
+        tb_top.u_xgmii_chk.clear();
+
+        // Estímulo: llamadas al generador, en orden
+        tb_top.u_pcs_gen.send_frame(8, 0);
+        tb_top.u_pcs_gen.send_idle(20);
+
+        // Lo que la norma dice que tiene que salir
+        tb_top.u_xgmii_chk.check_counts(.frames(1), .e(0), .prbs(0), .seq(0));
+        tb_top.u_pcs_chk.check_counts(.frames(1), .e(0), .prbs(0), .seq(0));
 
         done = 1;
     end
@@ -168,7 +187,7 @@ endmodule
 
 3. El test pasa si al final `error_count` vale 0 en los dos checkers.
 
-Usar siempre `join_none` + `wait fork` en vez de `join`. Verilator 5.036 genera C++ que no compila cuando un `fork ... join` tiene varias ramas `begin ... end` (error `__Vfork_1__sync was not declared`).
+Si un test necesita hilos en paralelo (por ejemplo, un monitor de `rx_block_lock` como en `test_lock_keep`), usar `join_none` + `wait fork` en vez de `join`. Verilator 5.036 genera C++ que no compila cuando un `fork ... join` tiene varias ramas `begin ... end` (error `__Vfork_1__sync was not declared`).
 
 ## Archivos
 
@@ -177,6 +196,6 @@ Usar siempre `join_none` + `wait fork` en vez de `join`. Verilator 5.036 genera 
 | `sim/test_phy.py` | Lanzador. pytest compila y corre un test SV por cada `test_*.sv`; cocotb genera clocks (156.25 MHz), reset y `start`, y al final lee `error_count` de los checkers |
 | `sim/pytest.ini` | Formato de la salida de pytest |
 | `tb/tb_top.sv` | DUT, agentes y conexiones (loopback serdes o loopback XGMII) |
-| `agents/xgmii/` | Interface, generador y checker XGMII |
-| `agents/pcs/` | Interface, generador y checker PCS |
+| `agents/xgmii/` | Generador y checker XGMII |
+| `agents/pcs/` | Generador y checker PCS |
 | `common/prbs.sv` | PRBS31 para el payload, scrambler y descrambler |

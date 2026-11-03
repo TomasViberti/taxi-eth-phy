@@ -3,13 +3,17 @@
 // Generador PCS 10GBASE-R basado en tasks.
 //
 // - Arma bloques 64B/66B según la norma, los
-//   scramblea y los escribe en pcs_if.
+//   scramblea y los escribe en rx_data/rx_hdr (entrada serdes del RX del DUT).
 // - Las tasks de alto nivel arman un frame completo con las de bajo nivel.
 // - Las tasks de inyección de errores rompen la norma a propósito.
 // - La línea se escribe en todos los ciclos: si ninguna task mandó un bloque,
 //   sale un idle scrambleado (como un transmisor real).
 
-module pcs_gen (pcs_if p_if);
+module pcs_gen (
+    input  logic        clk,
+    output logic [63:0] rx_data,  // payload del bloque, scrambleado (cl. 49.2.6)
+    output logic [1:0]  rx_hdr    // sync header, sin scramblear (cl. 49.2.4.3)
+);
 
     // Sync header. Bit 0 = primer bit transmitido: "01" (dato), "10" (control)
     localparam logic [1:0] SYNC_DATA = 2'b10;
@@ -41,8 +45,8 @@ module pcs_gen (pcs_if p_if);
 
     // La línea arranca en idle
     initial begin
-        p_if.header = SYNC_CTRL;
-        p_if.data   = {{8{C_IDLE}}, BT_CTRL};
+        rx_hdr  = SYNC_CTRL;
+        rx_data = {{8{C_IDLE}}, BT_CTRL};
     end
 
     // Bloques pendientes de mandar: {flip, header, data}
@@ -52,7 +56,7 @@ module pcs_gen (pcs_if p_if);
     // próximo bloque de la cola, o un idle si no hay ninguno. Así la línea
     // nunca queda con un bloque repetido, que el RX descramblearía como basura.
     // flip se aplica después del scrambler (error en la línea).
-    always @(posedge p_if.clk) begin : drive
+    always @(posedge clk) begin : drive
         logic [129:0] blk;
         logic [63:0]  flip;
         logic [1:0]   h;
@@ -74,15 +78,15 @@ module pcs_gen (pcs_if p_if);
             u_prbs.scramble(d, d);
         end
 
-        p_if.header <= h;
-        p_if.data   <= d ^ flip;
+        rx_hdr  <= h;
+        rx_data <= d ^ flip;
     end
 
     // Encola un bloque y espera un flanco: un bloque por ciclo
     task send_block(input logic [1:0] header, input logic [63:0] data,
                     input logic [63:0] flip = '0);
         queue.push_back({flip, header, data});
-        @(posedge p_if.clk);
+        @(posedge clk);
     endtask
 
     // n bloques de idle: block type 0x1E con 8 /I/
