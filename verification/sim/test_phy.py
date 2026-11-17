@@ -15,9 +15,12 @@
 #   WAVES=1 pytest test_phy.py -k happy          # + ondas para GTKWave
 #   pytest test_phy.py -s -k ...                 # + log y errores del checker
 #
+# Cada test deja su log en sim_build/<agente>/<test>/sim.log (mensajes de los
+# checkers, errores de compilación, etc.). Se pisa en cada corrida.
 # Las ondas quedan en sim_build/<agente>/<test>/waves.fst
 
 import glob
+import logging
 import os
 
 import cocotb
@@ -102,15 +105,30 @@ sv_tests = [(agent, os.path.splitext(os.path.basename(f))[0])
 @pytest.mark.parametrize("agent, sv_test", sv_tests, ids=[f"{a}-{t}" for a, t in sv_tests])
 def test_phy(agent, sv_test):
     waves = os.environ.get('WAVES') == '1'
+    build_dir = os.path.join(sim_dir, "sim_build", agent, sv_test)
+    os.makedirs(build_dir, exist_ok=True)
 
-    cocotb_test.simulator.run(
-        simulator="verilator",
-        python_search=[sim_dir],
-        verilog_sources=rtl_sources + ver_sources + [os.path.join(agents_dir, agent, 'tests', f"{sv_test}.sv")],
-        toplevel="tb_top",
-        module="test_phy",
-        sim_build=os.path.join(sim_dir, "sim_build", agent, sv_test),
-        timescale="1ns/1ps",
-        compile_args=["--timing", "--trace-fst", "--trace-structs", "-Wno-fatal"],
-        plus_args=["+waves"] if waves else [],
-    )
+    # Todo lo que imprime la simulación (cocotb-test lo manda al logger
+    # "cocotb") también va a sim.log, sin el prefijo de pytest
+    log_handler = logging.FileHandler(os.path.join(build_dir, "sim.log"), mode="w")
+    log_handler.setFormatter(logging.Formatter("%(message)s"))
+    log_handler.setLevel(logging.INFO)
+    sim_logger = logging.getLogger("cocotb")
+    sim_logger.addHandler(log_handler)
+    sim_logger.setLevel(logging.INFO)
+
+    try:
+        cocotb_test.simulator.run(
+            simulator="verilator",
+            python_search=[sim_dir],
+            verilog_sources=rtl_sources + ver_sources + [os.path.join(agents_dir, agent, 'tests', f"{sv_test}.sv")],
+            toplevel="tb_top",
+            module="test_phy",
+            sim_build=build_dir,
+            timescale="1ns/1ps",
+            compile_args=["--timing", "--trace-fst", "--trace-structs", "-Wno-fatal"],
+            plus_args=["+waves"] if waves else [],
+        )
+    finally:
+        sim_logger.removeHandler(log_handler)
+        log_handler.close()

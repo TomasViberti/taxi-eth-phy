@@ -11,11 +11,11 @@ module xgmii_gen (
     // Caracteres de control (tabla 46-3)
     localparam logic [7:0] IDLE  = 8'h07;
     localparam logic [7:0] START = 8'hFB;
-    localparam logic [7:0] TERM  = 8'hFD;
+    localparam logic [7:0] TERMINATE  = 8'hFD;
     localparam logic [7:0] ERROR = 8'hFE;
 
     // Preámbulo y SFD
-    localparam logic [7:0] PRE = 8'h55;
+    localparam logic [7:0] PREAMBLE = 8'h55;
     localparam logic [7:0] SFD = 8'hD5;
 
     prbs u_prbs ();
@@ -39,7 +39,7 @@ module xgmii_gen (
 
     // Start en lane 0 + 6 bytes de preámbulo + SFD
     task send_start();
-        send_word({SFD, {6{PRE}}, START}, 8'h01);
+        send_word({SFD, {6{PREAMBLE}}, START}, 8'h01);
     endtask
 
     // n palabras de dato desde la PRBS
@@ -65,7 +65,7 @@ module xgmii_gen (
                 word_data[8*lane +: 8] = prbs_data[8*lane +: 8];
                 word_ctrl[lane]        = 1'b0;
             end else if (lane == n_bytes) begin
-                word_data[8*lane +: 8] = TERM;
+                word_data[8*lane +: 8] = TERMINATE;
                 word_ctrl[lane]        = 1'b1;
             end else begin
                 word_data[8*lane +: 8] = IDLE;
@@ -93,9 +93,9 @@ module xgmii_gen (
         logic [31:0] carry;
 
         // lanes 0-3 idle, start en lane 4, preámbulo en lanes 5-7
-        send_word({{3{PRE}}, START, {4{IDLE}}}, 8'h1F);
+        send_word({{3{PREAMBLE}}, START, {4{IDLE}}}, 8'h1F);
         // el resto del preámbulo y el SFD van en la palabra siguiente
-        carry = {SFD, {3{PRE}}};
+        carry = {SFD, {3{PREAMBLE}}};
 
         repeat (n_words) begin
             u_prbs.generate_prbs(prbs_data);
@@ -104,7 +104,7 @@ module xgmii_gen (
         end
 
         // últimos 4 bytes de dato, FD en lane 4, idle
-        send_word({{3{IDLE}}, TERM, carry}, 8'hF0);
+        send_word({{3{IDLE}}, TERMINATE, carry}, 8'hF0);
         send_idle(ipg);
     endtask
 
@@ -128,7 +128,7 @@ module xgmii_gen (
                 word_data[8*lane +: 8] = START;
                 word_ctrl[lane]        = 1'b1;
             end else begin
-                word_data[8*lane +: 8] = PRE;
+                word_data[8*lane +: 8] = PREAMBLE;
                 word_ctrl[lane]        = 1'b0;
             end
         end

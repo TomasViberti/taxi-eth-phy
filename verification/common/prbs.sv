@@ -12,16 +12,16 @@ module prbs;
     // PRBS31 con polinomio 1 + x^28 + x^31.
     // Realimentación: S27 xor S30. La salida va invertida
     task generate_prbs(output logic [63:0] data_out);
-        logic fb;
+        logic feedack;
         // Bucle del largo de la palabra
         for (int i = 0; i < 64; i++) begin
 
             // XOR
-            fb          = prbs_reg[27] ^ prbs_reg[30];
+            feedack          = prbs_reg[27] ^ prbs_reg[30];
             // Inversión de la salida
-            data_out[i] = ~fb; 
+            data_out[i] = ~feedack; 
 
-            prbs_reg    = {prbs_reg[29:0], fb};
+            prbs_reg    = {prbs_reg[29:0], feedack};
         end
     endtask
 

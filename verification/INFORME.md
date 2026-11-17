@@ -20,7 +20,7 @@ Hay dos agentes, uno por interfaz del DUT:
 - Puertos: cada agente tiene puertos `logic` con el clock y las señales que maneja. En `tb_top` se conectan con `logic` a los puertos del DUT (no se usa `interface`: son sólo dos señales por agente).
 - Generador: tasks que hacen lo que define la norma (idle, start, datos, terminate, frame completo) y tasks de inyección de errores que la rompen a propósito.
 - Checker XGMII: máquina de estados con lock que corre sola en todos los ciclos (ver abajo). Cuenta lo que ve y al final el test compara esos contadores con lo que pide la norma.
-- Checker PCS: también corre solo. Descramblea cada bloque (cl. 49.2.10), lo valida (cl. 49.2.4.6) y lo pasa a los 8 caracteres XGMII que representa según la figura 49-7. Esa palabra entra a una copia del checker XGMII, que verifica la estructura del frame y la PRBS con el mismo lock. Suma un contador propio, `blk_err_count`, de bloques inválidos.
+- Checker PCS: máquina de estados con lock que corre sola, igual que el XGMII pero a nivel de bloque. Descramblea cada bloque (cl. 49.2.10), lo clasifica en control, start, data, terminate o error como R_TYPE (cl. 49.2.13.2.3) y sigue la secuencia del Receive state diagram (figura 49-17): estados UNLOCKED, INTER_FRAME (entre frames) y IN_FRAME (dentro del frame). Verifica preámbulo, SFD y PRBS igual que el XGMII. Además de los mismos contadores, cuenta los bloques inválidos (cl. 49.2.4.6) en `blk_err_count`.
 
 | Agente | Puertos | Qué maneja |
 |---|---|---|
@@ -34,7 +34,7 @@ El payload de los frames sale de una PRBS31 (`common/prbs.sv`, cl. 49.2.8). Los 
 La XGMII es un flujo de bytes (cl. 46.2). En cada ciclo el checker recorre las 8 lanes en orden y cada byte hace avanzar una FSM que sigue la estructura de la figura 46-3:
 
 ```
-UNLOCKED --/I/--> IDLE --/S/ (lane 0 o 4)--> PREAMBLE --6 x 0x55--> SFD --0xD5--> DATA --/T/--> IDLE
+UNLOCKED --idle--> INTER_FRAME --start (lane 0 o 4)--> IN_PREAMBLE --6 x 0x55--> IN_SFD --0xD5--> IN_DATA --terminate--> INTER_FRAME
 ```
 
 - UNLOCKED: no verifica nada. Se lockea con un /I/ (entre frames) o con un /S/ en lane 0 o 4.

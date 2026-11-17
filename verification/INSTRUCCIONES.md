@@ -67,6 +67,13 @@ Eso lo configura `verification/sim/pytest.ini` (`-v --tb=no -rN`). Si se corre p
 
 ### Ver por qué falló un test
 
+Cada test deja su log en `sim_build/<agente>/<test>/sim.log`, pase o falle. Tiene todo lo que imprime la simulación: los lock y unlock de los checkers, los contadores y los errores. También los errores de compilación, si el test no compila. Se pisa en cada corrida.
+
+```bash
+cat sim_build/xgmii/test_double_start/sim.log            # un test
+grep -H "CHECKER ERROR\|TEST ERROR" sim_build/*/*/sim.log  # los errores de todos los tests
+```
+
 Con `-s` se ve el log de la simulación de los tests que fallan, incluidos los mensajes de los checkers:
 
 ```bash
@@ -82,15 +89,15 @@ pytest test_phy.py -o log_cli=true --log-cli-level=INFO -k "xgmii and happy"
 El checker XGMII avisa cada lock y unlock, y al final muestra sus contadores:
 
 ```
-[659000] XGMII CHECKER: unlock en lane 0 (S_DATA): c=1 d=fb, se esperaba dato o /T/
+[659000] XGMII CHECKER: unlock en lane 0 (IN_DATA): ctrl=1 octet=fb, se esperaba data o terminate
 [659000] XGMII CHECKER: frames=0 e=0 prbs=0 seq=1 unlocks=1
 [659000] XGMII CHECKER ERROR: e = 0, se esperaba 8
 ```
 
-El checker PCS muestra lo mismo con `PCS CHECKER`, y además avisa cada bloque inválido:
+El checker PCS muestra lo mismo con `PCS CHECKER`. En el unlock dice el tipo de bloque que llegó (BLOCK_CONTROL, BLOCK_START, BLOCK_DATA, BLOCK_TERMINATE o BLOCK_ERROR) y por qué:
 
 ```
-[32000] PCS CHECKER: bloque inválido hdr=01 block=3c78f7800000001e, código de control que no está en la tabla 49-1
+[525000] PCS CHECKER: unlock (IN_FRAME): bloque BLOCK_START, se esperaba data o terminate
 ```
 
 Los que salen antes del `clear()` del test son del arranque (reset y descrambler todavía sin sincronizar) y no cuentan.
@@ -132,15 +139,15 @@ En el árbol de GTKWave (panel SST) todo cuelga de `tb_top`:
 | `xgmii_rxd` / `xgmii_rxc` | Hex / Binary | Salida XGMII del RX (lo que mira el checker XGMII) |
 | `gen_rx_data` / `gen_rx_hdr` | Hex / Binary | Lo que manda el generador PCS (scrambleado) |
 | `serdes_tx_data` / `serdes_tx_hdr` | Hex / Binary | Salida serdes del TX (scrambleada) |
-| `u_pcs_chk.dec_data` / `u_pcs_chk.dec_ctrl` | Hex / Binary | Salida serdes del TX descrambleada y decodificada a XGMII por el checker PCS (figura 49-7) |
-| `u_pcs_chk.u_frame_chk.state` | | Estado de la FSM de frame del checker PCS |
+| `u_pcs_chk.block_descr` | Hex | Salida serdes del TX ya descrambleada por el checker PCS. El byte bajo, `[7:0]`, es el block type |
+| `u_pcs_chk.block_kind` / `u_pcs_chk.state` | | Tipo del bloque (BLOCK_CONTROL, BLOCK_START, BLOCK_DATA, BLOCK_TERMINATE, BLOCK_ERROR) y estado del checker PCS (UNLOCKED, INTER_FRAME, IN_FRAME) |
 | `u_xgmii_chk.error_count`, `u_pcs_chk.error_count` | Decimal | Errores de cada checker. Tienen que quedar en 0 |
-| `u_xgmii_chk.state` | | Estado del checker XGMII (UNLOCKED, S_IDLE, S_PREAMBLE, S_SFD, S_DATA) |
+| `u_xgmii_chk.state` | | Estado del checker XGMII (UNLOCKED, INTER_FRAME, IN_PREAMBLE, IN_SFD, IN_DATA) |
 | `u_xgmii_chk.frame_count`, `e_count`, `prbs_err_count`, `seq_err_count` | Decimal | Lo que fue viendo el checker XGMII |
 | `dut.rx_block_lock` | | Block lock del RX |
 | `loopback_xgmii` | | 0 = conexión de los tests XGMII, 1 = conexión de los tests PCS |
 
-El formato se cambia con clic derecho sobre la señal, *Data Format*. Lo que está en `serdes_tx_data` está scrambleado y no se puede leer a ojo; para leerlo hay que mirar `u_pcs_chk.dec_data` / `dec_ctrl`, que es el bloque ya pasado a la palabra XGMII que representa.
+El formato se cambia con clic derecho sobre la señal, *Data Format*. Lo que está en `serdes_tx_data` está scrambleado y no se puede leer a ojo; para leerlo hay que mirar `u_pcs_chk.block_descr`, que es el bloque ya descrambleado.
 
 Una vez armada la vista conviene guardarla con *File, Write Save File* (por ejemplo `phy.gtkw`) y después abrirla junto con cualquier test:
 

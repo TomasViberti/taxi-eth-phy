@@ -3,7 +3,7 @@
 // Checker XGMII
 
 module xgmii_checker #(
-    parameter string NAME = "XGMII"   // sale en el log: XGMII o PCS (cuando lo usa pcs_checker)
+    parameter string NAME = "XGMII"   // nombre que sale en el log
 ) (
     input logic        clk,   
     input logic [63:0] rxd,   
@@ -13,13 +13,13 @@ module xgmii_checker #(
     // Caracteres de control (tabla 46-3)
     localparam logic [7:0] IDLE  = 8'h07;
     localparam logic [7:0] START = 8'hFB;
-    localparam logic [7:0] TERM  = 8'hFD;
+    localparam logic [7:0] TERMINATE  = 8'hFD;
     localparam logic [7:0] ERROR = 8'hFE;
 
-    localparam logic [7:0] PRE = 8'h55;
+    localparam logic [7:0] PREAMBLE = 8'h55;
     localparam logic [7:0] SFD = 8'hD5;
 
-    typedef enum {UNLOCKED, S_IDLE, S_PREAMBLE, S_SFD, S_DATA} state_t;
+    typedef enum {UNLOCKED, INTER_FRAME, IN_PREAMBLE, IN_SFD, IN_DATA} state_t;
 
     state_t state = UNLOCKED;
     int     pre_count; 
@@ -59,7 +59,7 @@ module xgmii_checker #(
             prbs_fill++;
         end 
         else begin
-            // Mismo polinomio que generate_prbs de prbs.sv y salida invertida (cl. 49.2.8)
+            // Mismo polinomio que generate_prbs de prbs.sv y salida invertida 
             bit_err = (bit_in != ~(prbs_reg[27] ^ prbs_reg[30]));
         end
 
@@ -83,39 +83,39 @@ module xgmii_checker #(
 
             UNLOCKED: begin
                 if (is_ctrl && octet == IDLE)
-                    lock(S_IDLE, lane);
+                    lock(INTER_FRAME, lane);
                 else if (is_start(lane, is_ctrl, octet)) begin
                     pre_count = 0;
-                    lock(S_PREAMBLE, lane);
+                    lock(IN_PREAMBLE, lane);
                 end
             end
 
             // Entre frames: sólo /I/, o /S/ que empieza el próximo frame
-            S_IDLE: begin
+            INTER_FRAME: begin
                 if (is_ctrl && octet == IDLE) begin
                     // sigue entre frames
                 end else if (is_start(lane, is_ctrl, octet)) begin
                     pre_count = 0;
-                    state = S_PREAMBLE;
+                    state = IN_PREAMBLE;
                 end else
-                    unlock(lane, is_ctrl, octet, "se esperaba /I/ o /S/");
+                    unlock(lane, is_ctrl, octet, "se esperaba idle o start");
             end
 
             // Después del /S/: 6 bytes de dato 0x55
-            S_PREAMBLE: begin
-                if (!is_ctrl && octet == PRE) begin
+            IN_PREAMBLE: begin
+                if (!is_ctrl && octet == PREAMBLE) begin
                     pre_count++;
-                    if (pre_count == 6) state = S_SFD;
+                    if (pre_count == 6) state = IN_SFD;
                 end else
                     unlock(lane, is_ctrl, octet, "se esperaba preámbulo (0x55)");
             end
 
             // Después del preámbulo: 1 byte de dato 0xD5.
-            S_SFD: begin
+            IN_SFD: begin
                 if (!is_ctrl && octet == SFD) begin
                     // Aplico reset de la PRBS para que empiece a sincronizar desde cero
                     prbs_reset();
-                    state = S_DATA;
+                    state = IN_DATA;
                 end else
                     unlock(lane, is_ctrl, octet, "se esperaba SFD (0xD5)");
             end
@@ -123,7 +123,7 @@ module xgmii_checker #(
             // Datos hasta el /T/, que puede caer en cualquier
             // lane. Cada bit de dato pasa por el checker PRBS31,
             // bit 0 primero
-            S_DATA: begin
+            IN_DATA: begin
                 if (!is_ctrl) begin
                     for (int i = 0; i < 8; i++) begin
                         prbs_check_bit(octet[i], bit_err);
@@ -132,11 +132,11 @@ module xgmii_checker #(
                             break;
                         end
                     end
-                end else if (octet == TERM) begin
+                end else if (octet == TERMINATE) begin
                     frame_count++;
-                    state = S_IDLE;
+                    state = INTER_FRAME;
                 end else
-                    unlock(lane, is_ctrl, octet, "se esperaba dato o /T/");
+                    unlock(lane, is_ctrl, octet, "se esperaba data o terminate");
             end
 
         endcase
