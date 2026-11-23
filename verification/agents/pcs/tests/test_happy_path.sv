@@ -2,10 +2,6 @@
 //
 // Happy path PCS: frames correctos de distintos largos, con loopback XGMII.
 // pcs_gen -> RX -> XGMII RX -> TX -> serdes_tx
-// - Lo que sale por XGMII RX tienen que ser los 4 frames bien formados
-//   (cl. 46.2) y con el payload PRBS31 intacto (cl. 49.2.13, decodificación).
-// - Lo que sale por serdes_tx, descrambleado, tienen que ser los mismos
-//   bloques que mandó pcs_gen (figura 49-7).
 // Pasa si error_count == 0 en los dos checkers.
 
 module test (input logic start, output logic done);

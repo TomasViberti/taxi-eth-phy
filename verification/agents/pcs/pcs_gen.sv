@@ -1,13 +1,6 @@
 // pcs_gen.sv
 //
 // Generador PCS 10GBASE-R basado en tasks.
-//
-// - Arma bloques 64B/66B según la norma, los
-//   scramblea y los escribe en rx_data/rx_hdr (entrada serdes del RX del DUT).
-// - Las tasks de alto nivel arman un frame completo con las de bajo nivel.
-// - Las tasks de inyección de errores rompen la norma a propósito.
-// - La línea se escribe en todos los ciclos: si ninguna task mandó un bloque,
-//   sale un idle scrambleado (como un transmisor real).
 
 module pcs_gen (
     input  logic        clk,
@@ -166,7 +159,7 @@ module pcs_gen (
 
 
 
-    //--------------------------Inyección de errores---------------------------
+    // Inyección de errores
 
     // (send_block sirve para mandar cualquier bloque, válido o no)
     

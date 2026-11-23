@@ -146,8 +146,7 @@ module pcs_checker (
         // Header 10: bloque de control, el block type dice el formato
         block_type = BLOCK_ERROR;
 
-        // 0x1E: 8 códigos de control C0..C7. Es control si son todos /I/ (cl.
-        // 49.2.13.2.3: "eight valid control characters other than ... /E/")
+        // 0x1E: 8 códigos de control C0..C7.
         if (type_field == BLOCK_TYPE_CONTROL) begin
             for (int i = 0; i < 8; i++) begin
                 check_code(block[8 + 7*i +: 7], code_ok, is_error);
@@ -215,8 +214,7 @@ module pcs_checker (
 
         case (state)
 
-            // No sabe dónde está: no verifica nada. Se lockea con control
-            // (está entre frames) o con start (empieza un frame)
+            // No sabe dónde está: no verifica nada.
             UNLOCKED: begin
                 if (block_type == BLOCK_CONTROL)
                     lock(INTER_FRAME);
@@ -237,7 +235,7 @@ module pcs_checker (
                     unlock(block_type, invalid, why, "se esperaba control o start");
             end
 
-            // Dentro del frame (RX_D): data, o terminate que termina el frame
+            // Dentro del frame: data, o terminate que termina el frame
             IN_FRAME: begin
                 if (block_type == BLOCK_DATA) begin
                     check_payload(block, 0, 8, ok);
