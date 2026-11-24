@@ -1,11 +1,6 @@
 // test_lock_keep.sv
 //
 // 15 sync headers inválidos en cada ventana de 64 bloques.
-// Norma (cl. 49.2.13.2.2, figura 49-12): block lock se pierde recién con 16
-// headers inválidos en una ventana de 64. Con 15 se tiene que mantener.
-// Mismo patrón periódico que test_lock_loss.sv: 15 inválidos seguidos + 49
-// válidos, repetido. Cualquier ventana de 64 bloques tiene exactamente 15.
-// Pasa si rx_block_lock nunca baja.
 
 module test (input logic start, output logic done);
 

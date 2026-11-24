@@ -29,10 +29,7 @@ import pytest
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, with_timeout
 
-
-# ----------------------------------------------------------------------
 # cocotb: corre dentro de la simulación
-# ----------------------------------------------------------------------
 
 @cocotb.test()
 async def run_sv_test(dut):
